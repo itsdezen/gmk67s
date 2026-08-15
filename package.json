@@ -1,0 +1,41 @@
+{
+  "name": "gmk67s-node",
+  "version": "0.1.0",
+  "description": "Node.js CLI for uploading images and configuring lighting on the GMK67-S keyboard's LCD/RGB via HID protocol",
+  "type": "module",
+  "exports": {
+    ".": "./src/api.js"
+  },
+  "scripts": {
+    "cli": "node src/cli.js",
+    "tui": "node src/tui.js",
+    "timesync": "node src/timesync.js",
+    "upload": "node src/sendImageMagick.js",
+    "lights": "node src/configureLights.js",
+    "preset": "node src/loadPreset.js",
+    "diagnostic": "node src/diagnostic.js",
+    "restore-factory": "node src/restoreFactory.js"
+  },
+  "bin": {
+    "gmk67s": "./src/cli.js"
+  },
+  "dependencies": {
+    "ink": "^5.2.1",
+    "jimp": "^1.6.1",
+    "node-hid": "^3.4.0",
+    "omggif": "^1.0.10",
+    "react": "^18.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "gmk67s",
+    "hid",
+    "keyboard",
+    "display",
+    "image-upload",
+    "time-sync"
+  ],
+  "license": "MIT"
+}
