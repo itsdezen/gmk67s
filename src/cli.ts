@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * @fileoverview Single-entry CLI dispatcher: `gmk67s <subcommand> [args...]`.
  * Each subcommand runs the existing standalone script as a child process
@@ -12,17 +12,17 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const SUBCOMMANDS = {
-  upload: "sendImageMagick.js",
-  lights: "configureLights.js",
-  preset: "loadPreset.js",
-  timesync: "timesync.js",
-  diagnostic: "diagnostic.js",
-  "restore-factory": "restoreFactory.js",
-  tui: "tui.js",
+const SUBCOMMANDS: Record<string, string> = {
+  upload: "sendImageMagick.ts",
+  lights: "configureLights.ts",
+  preset: "loadPreset.ts",
+  timesync: "timesync.ts",
+  diagnostic: "diagnostic.ts",
+  "restore-factory": "restoreFactory.ts",
+  tui: "tui.tsx",
 };
 
-function printHelp() {
+function printHelp(): void {
   console.log(`
 gmk67s — GMK67-S keyboard CLI
 

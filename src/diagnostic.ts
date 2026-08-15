@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * @fileoverview GMK67-S diagnostic + config dump tool.
  * Runs a protocol handshake test sequence and prints a per-field config dump.
@@ -15,10 +15,11 @@ import {
   readConfigFromDevice,
   parseConfigBuffer,
 } from "./lib/device.js";
+import type { HidDevice } from "./lib/device.js";
 
-function printConfigDump(configBuffer) {
+function printConfigDump(configBuffer: Buffer): void {
   console.log("\n--- Raw hex (48 bytes) ---");
-  console.log(configBuffer.toString("hex").match(/.{1,32}/g).join("\n"));
+  console.log(configBuffer.toString("hex").match(/.{1,32}/g)!.join("\n"));
 
   const c = parseConfigBuffer(configBuffer);
   console.log("\n--- Parsed fields ---");
@@ -44,12 +45,12 @@ function printConfigDump(configBuffer) {
   console.log(`Byte 46 (image2Frames): ${c.image2Frames}`);
 }
 
-async function runDiagnostics() {
+async function runDiagnostics(): Promise<void> {
   console.log("╔═══════════════════════════════════════════════════╗");
   console.log("║   GMK67-S Comprehensive Device Diagnostic Tool     ║");
   console.log("╚═══════════════════════════════════════════════════╝\n");
 
-  let device;
+  let device: HidDevice | undefined;
   let testsPassed = 0;
   let testsFailed = 0;
 
@@ -93,7 +94,7 @@ async function runDiagnostics() {
       testsPassed++;
     } catch (e) {
       console.error("✗ FAILED: Could not open device!");
-      console.error(`  Error: ${e.message}`);
+      console.error(`  Error: ${(e as Error).message}`);
       testsFailed++;
       process.exit(1);
     }
@@ -105,8 +106,8 @@ async function runDiagnostics() {
     console.log("└─────────────────────────────────────────────────┘");
     console.log("Listening for 2 seconds...");
 
-    const spontaneous = [];
-    device.on('data', (data) => {
+    const spontaneous: string[] = [];
+    device.on('data', (data: Buffer) => {
       spontaneous.push(Buffer.from(data).toString('hex'));
     });
 
@@ -256,7 +257,7 @@ async function runDiagnostics() {
     console.log("└─────────────────────────────────────────────────┘");
     console.log("Measuring response times for 10 commands...");
 
-    const timings = [];
+    const timings: number[] = [];
     for (let i = 0; i < 10; i++) {
       const start = Date.now();
       await trySend(device, 0x01, undefined, 1);
@@ -285,7 +286,7 @@ async function runDiagnostics() {
       console.log("\n✓ PASSED: Config read and parsed");
       testsPassed++;
     } catch (e) {
-      console.error(`✗ FAILED: Config dump failed: ${e.message}`);
+      console.error(`✗ FAILED: Config dump failed: ${(e as Error).message}`);
       testsFailed++;
     }
     console.log();
@@ -304,9 +305,9 @@ async function runDiagnostics() {
       console.log("✓ ALL TESTS PASSED!");
       console.log();
       console.log("Next steps:");
-      console.log("  1. Upload an image:  node src/sendImageMagick.js image.png");
-      console.log("  2. Configure lights: node src/configureLights.js --effect rainbow-cycle");
-      console.log("  3. Sync time:        node src/timesync.js");
+      console.log("  1. Upload an image:  bun src/sendImageMagick.ts image.png");
+      console.log("  2. Configure lights: bun src/configureLights.ts --effect rainbow-cycle");
+      console.log("  3. Sync time:        bun src/timesync.ts");
     } else {
       console.log("✗ SOME TESTS FAILED");
       console.log();

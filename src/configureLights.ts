@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * @fileoverview GMK67-S Keyboard Lighting Configuration Utility
  * Configures underglow effects, LED brightness, speed, colors, and more.
@@ -6,8 +6,9 @@
  */
 
 import { configureLighting } from "./lib/device.js";
+import type { ConfigChanges, UnderglowConfig, LedConfig } from "./lib/device.js";
 
-export const UNDERGLOW_EFFECTS = {
+export const UNDERGLOW_EFFECTS: Record<string, number> = {
   OFF: 0x00,
   HORIZONTAL_DIMMING_WAVE: 0x01,
   HORIZONTAL_PULSE_WAVE: 0x02,
@@ -29,7 +30,7 @@ export const UNDERGLOW_EFFECTS = {
   SLOW_RAINBOW_FROM_CENTER: 0x12,
 };
 
-export const LED_MODES = {
+export const LED_MODES: Record<string, number> = {
   BLINKING_ONE_COLOR: 0x00,
   PULSE_RAINBOW: 0x01,
   BLINKING_ONE_COLOR_ALT: 0x02,
@@ -37,7 +38,7 @@ export const LED_MODES = {
   FIXED_COLOR_ALT: 0x04,
 };
 
-export const LED_COLORS = {
+export const LED_COLORS: Record<string, number> = {
   RED: 0x00,
   ORANGE: 0x01,
   YELLOW: 0x02,
@@ -49,7 +50,32 @@ export const LED_COLORS = {
   OFF: 0x08,
 };
 
-const DEFAULT_CONFIG = {
+interface FullUnderglowConfig {
+  effect: number;
+  brightness: number;
+  speed: number;
+  orientation: number;
+  rainbow: number;
+  hue: { red: number; green: number; blue: number };
+}
+
+interface FullLedConfig {
+  mode: number;
+  saturation: number;
+  rainbow: number;
+  color: number;
+}
+
+interface FullConfig {
+  underglow: FullUnderglowConfig;
+  led: FullLedConfig;
+  winlock: number;
+  showImage: number;
+  image1Frames: number;
+  image2Frames: number;
+}
+
+const DEFAULT_CONFIG: FullConfig = {
   underglow: {
     effect: UNDERGLOW_EFFECTS.HORIZONTAL_DIMMING_WAVE,
     brightness: 2,
@@ -74,7 +100,7 @@ const DEFAULT_CONFIG = {
   image2Frames: 0,
 };
 
-function validateConfig(config) {
+function validateConfig(config: FullConfig): void {
   const ug = config.underglow;
   if (ug.brightness < 0 || ug.brightness > 9) {
     throw new Error("underglow.brightness must be 0-9");
@@ -116,11 +142,11 @@ function validateConfig(config) {
 
 /**
  * Sends configuration to the GMK67-S keyboard
- * @param {Object} userConfig - User-provided configuration (partial or complete)
- * @returns {Promise<boolean>} True if configuration was successfully applied
+ * @param userConfig - User-provided configuration (partial or complete)
+ * @returns True if configuration was successfully applied
  */
-export async function configureLights(userConfig = {}) {
-  const config = {
+export async function configureLights(userConfig: ConfigChanges = {}): Promise<boolean> {
+  const config: FullConfig = {
     underglow: {
       ...DEFAULT_CONFIG.underglow,
       ...(userConfig.underglow || {}),
@@ -144,14 +170,18 @@ export async function configureLights(userConfig = {}) {
   return await configureLighting(config);
 }
 
-function parseCliArgs(argv) {
-  const args = {};
+interface CliArgs {
+  [key: string]: string;
+}
+
+function parseCliArgs(argv: string[]): CliArgs {
+  const args: CliArgs = {};
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg.startsWith("--")) continue;
 
     const eqIndex = arg.indexOf("=");
-    let key, value;
+    let key: string, value: string;
 
     if (eqIndex !== -1) {
       key = arg.slice(2, eqIndex);
@@ -172,8 +202,8 @@ function parseCliArgs(argv) {
   return args;
 }
 
-function argsToConfig(args) {
-  const config = {};
+function argsToConfig(args: CliArgs): ConfigChanges {
+  const config: ConfigChanges = {};
 
   if (args.effect !== undefined) {
     config.underglow = config.underglow || {};
@@ -265,7 +295,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(`
 GMK67-S Lighting Configuration Tool
 
-Usage: node configureLights.js [options]
+Usage: bun src/configureLights.ts [options]
 
 Underglow Options:
   --effect <name|number>      Underglow effect (see effects below)
@@ -298,9 +328,9 @@ Available Colors:
   red, orange, yellow, green, teal, blue, purple, white, off
 
 Examples:
-  node configureLights.js --effect rainbow-cycle --brightness 5
-  node configureLights.js --effect breathing --red 255 --green 0 --blue 0
-  node configureLights.js --led-color blue --led-mode 3
+  bun src/configureLights.ts --effect rainbow-cycle --brightness 5
+  bun src/configureLights.ts --effect breathing --red 255 --green 0 --blue 0
+  bun src/configureLights.ts --led-color blue --led-mode 3
     `);
     process.exit(0);
   }

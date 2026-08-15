@@ -1,8 +1,9 @@
 # gmk67s
 
-Node.js CLI for the GMK67-S keyboard: LCD image/GIF upload, RGB underglow +
-LED configuration, lighting presets, time sync, config dump, and
-factory-default restore — over the Zuoya vendor HID protocol.
+TypeScript CLI (runs on [Bun](https://bun.sh)) for the GMK67-S keyboard: LCD
+image/GIF upload, RGB underglow + LED configuration, lighting presets, time
+sync, config dump, and factory-default restore — over the Zuoya vendor HID
+protocol.
 
 See [SPEC.md](./SPEC.md) for the full protocol/hardware reference (opcodes,
 report layout, config buffer offsets, enums, factory defaults).
@@ -37,8 +38,11 @@ Not implemented, by design:
 
 ## Install
 
+Requires [Bun](https://bun.sh) (runs the TypeScript sources directly — no
+build step).
+
 ```bash
-npm install
+bun install
 ```
 
 ### Linux
@@ -61,13 +65,13 @@ gmk67s --help
 
 | Subcommand | Underlying script | Description |
 |---|---|---|
-| `diagnostic` | `src/diagnostic.js` | Protocol handshake tests + read-only config dump |
-| `timesync` | `src/timesync.js` | Sync system time to the keyboard's RTC |
-| `lights` | `src/configureLights.js` | Configure underglow/LED via flags |
-| `preset` | `src/loadPreset.js` | Apply a named preset from `presets.json` |
-| `upload` | `src/sendImageMagick.js` | Upload a static image or GIF to the LCD |
-| `restore-factory` | `src/restoreFactory.js` | Restore the FACTORY_CONFIG baseline (prompts for confirmation) |
-| `tui` | `src/tui.js` | Interactive terminal UI (menu-driven, same underlying API) |
+| `diagnostic` | `src/diagnostic.ts` | Protocol handshake tests + read-only config dump |
+| `timesync` | `src/timesync.ts` | Sync system time to the keyboard's RTC |
+| `lights` | `src/configureLights.ts` | Configure underglow/LED via flags |
+| `preset` | `src/loadPreset.ts` | Apply a named preset from `presets.json` |
+| `upload` | `src/sendImageMagick.ts` | Upload a static image or GIF to the LCD |
+| `restore-factory` | `src/restoreFactory.ts` | Restore the FACTORY_CONFIG baseline (prompts for confirmation) |
+| `tui` | `src/tui.tsx` | Interactive terminal UI (menu-driven, same underlying API) |
 
 Examples (via the dispatcher, or by running each script directly with `node`):
 
@@ -85,7 +89,7 @@ gmk67s restore-factory --yes   # skip the confirmation prompt
 gmk67s tui                     # interactive menu — device info, lights, presets, upload, timesync, restore
 ```
 
-Every subcommand also works as `node src/<script>.js [options]` directly.
+Every subcommand also works as `bun src/<script>.ts [options]` directly.
 
 Or as a library:
 
@@ -102,7 +106,7 @@ const config = await gmk67s.readConfig();
 
 ## Verification checklist
 
-1. `npm install`, then try `node src/diagnostic.js` and `node src/timesync.js` first.
+1. `bun install`, then try `bun src/diagnostic.ts` and `bun src/timesync.ts` first.
 2. Test LCD upload with an asymmetric marker image, confirm it renders
    correctly on real hardware.
 3. Test rollback: simulate a failed config write (e.g. disconnect mid-write)

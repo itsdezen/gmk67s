@@ -18,7 +18,6 @@
 
 import {
   configureLighting,
-  uploadImageToDevice,
   syncTime,
   restoreFactoryDefaults,
   getKeyboardInfo,
@@ -27,43 +26,43 @@ import {
   readConfigFromDevice,
   parseConfigBuffer,
 } from "./lib/device.js";
+import type { ConfigChanges, ParsedConfig } from "./lib/device.js";
 
 import { processAndSend } from "./sendImageMagick.js";
+import type { UploadOptions } from "./sendImageMagick.js";
 
 /**
  * Upload 1 or 2 images (supports GIFs) with automatic resize + frame
  * extraction. Every call rewrites the device's entire image memory from
  * scratch: one file uses the full 36-frame budget, two files split it 18/18.
- * @param {string|string[]} files - 1 or 2 source image file paths
- * @param {Object} [options] - Upload options
- * @param {number} [options.frameDuration] - Animation delay in ms (min 60, default 100 for GIFs)
- * @param {boolean} [options.showAfter=true] - Display the image after upload (vs. the clock)
+ * @param files - 1 or 2 source image file paths
+ * @param options - Upload options
  */
-async function uploadImage(files, options = {}) {
+async function uploadImage(files: string | string[], options: UploadOptions = {}): Promise<void> {
   return processAndSend(files, options);
 }
 
 /**
  * Configure lighting (read-modify-write, preserves unspecified settings)
- * @param {Object} changes - Settings to change
+ * @param changes - Settings to change
  */
-async function setLighting(changes) {
+async function setLighting(changes: ConfigChanges): Promise<boolean> {
   return configureLighting(changes);
 }
 
 /**
  * Switch the displayed image slot
- * @param {number} slot - 0=show time, 1=show slot 0, 2=show slot 1
+ * @param slot - 0=show time, 1=show slot 0, 2=show slot 1
  */
-async function showSlot(slot) {
+async function showSlot(slot: number): Promise<boolean> {
   return configureLighting({ showImage: slot });
 }
 
 /**
  * Read current keyboard configuration
- * @returns {Promise<Object>} Parsed config with underglow, led, showImage, image1Frames, image2Frames, frameDuration
+ * @returns Parsed config with underglow, led, showImage, image1Frames, image2Frames, frameDuration
  */
-async function readConfig() {
+async function readConfig(): Promise<ParsedConfig> {
   const device = openDevice();
   try {
     return parseConfigBuffer(await readConfigFromDevice(device));

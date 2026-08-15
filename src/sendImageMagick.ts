@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * @fileoverview Image upload utility with built-in preprocessing.
  * Converts images to DISPLAY_WIDTH x DISPLAY_HEIGHT before uploading to the
@@ -10,16 +10,22 @@ import os from "os";
 import path from "path";
 import fs from "fs";
 import { Jimp } from "jimp";
+import type { JimpInstance } from "jimp";
 import { GifReader } from "omggif";
 import { uploadImageToDevice, DISPLAY_WIDTH, DISPLAY_HEIGHT } from "./lib/device.js";
+
+interface UploadOptions {
+  showAfter?: boolean;
+  frameDuration?: number;
+}
 
 /**
  * Parses `<file1> [file2] [--ms <delay>]` style argv into positional file
  * paths plus the --ms option.
  */
-function parseUploadArgv(argv) {
-  const files = [];
-  let ms;
+function parseUploadArgv(argv: string[]): { files: string[]; ms: string | undefined } {
+  const files: string[] = [];
+  let ms: string | undefined;
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--ms") {
@@ -39,9 +45,8 @@ function parseUploadArgv(argv) {
  * Resizes an image to exactly DISPLAY_WIDTH x DISPLAY_HEIGHT, preserving the
  * source aspect ratio (scale so the shorter side fills the target) and
  * center-cropping the overflow on the longer side, instead of squashing.
- * @param {import("jimp").JimpInstance} img
  */
-function resizeCoverDisplay(img) {
+function resizeCoverDisplay(img: JimpInstance): void {
   img.cover({ w: DISPLAY_WIDTH, h: DISPLAY_HEIGHT });
 }
 
@@ -49,11 +54,11 @@ function resizeCoverDisplay(img) {
  * Extracts all frames from a GIF using omggif with proper frame compositing.
  * Handles disposal methods (keep, restore to background, restore to previous)
  * so each output frame is a fully rendered image — equivalent to ImageMagick's -coalesce.
- * @param {string} inPath - Path to GIF file
- * @param {string} outDir - Directory to write frame PNG files into
- * @returns {Promise<string[]>} Sorted array of output file paths
+ * @param inPath - Path to GIF file
+ * @param outDir - Directory to write frame PNG files into
+ * @returns Sorted array of output file paths
  */
-async function extractGifFrames(inPath, outDir) {
+async function extractGifFrames(inPath: string, outDir: string): Promise<string[]> {
   const buf = fs.readFileSync(inPath);
   const reader = new GifReader(buf);
   const { width, height } = reader;
@@ -61,7 +66,7 @@ async function extractGifFrames(inPath, outDir) {
 
   // Canvas holds the composited state (RGBA)
   const canvas = Buffer.alloc(width * height * 4, 0);
-  const framePaths = [];
+  const framePaths: string[] = [];
 
   for (let i = 0; i < frameCount; i++) {
     const info = reader.frameInfo(i);
@@ -90,10 +95,10 @@ async function extractGifFrames(inPath, outDir) {
 
     // Jimp v1: construct directly from a Bitmap-shaped buffer instead of the
     // old `new Jimp(width, height)` + `img.bitmap.data = ...` two-step.
-    const img = new Jimp({ data: Buffer.from(canvas), width, height });
+    const img = new Jimp({ data: Buffer.from(canvas), width, height }) as JimpInstance;
     resizeCoverDisplay(img);
     const outPath = path.join(outDir, `frame_${String(i).padStart(4, "0")}.png`);
-    await img.write(outPath);
+    await img.write(outPath as `${string}.png`);
     framePaths.push(outPath);
 
     const disposal = info.disposal || 0;
@@ -118,21 +123,21 @@ async function extractGifFrames(inPath, outDir) {
 
 /**
  * Extracts frames from an image file (static or animated GIF)
- * @param {string} inPath - Path to input image file
- * @param {string} outDir - Directory to write frame files into
- * @returns {Promise<string[]>} Array of output file paths
+ * @param inPath - Path to input image file
+ * @param outDir - Directory to write frame files into
+ * @returns Array of output file paths
  */
-export async function extractFramesFromFile(inPath, outDir) {
+export async function extractFramesFromFile(inPath: string, outDir: string): Promise<string[]> {
   const ext = path.extname(inPath).toLowerCase();
 
   if (ext === ".gif") {
     return extractGifFrames(inPath, outDir);
   }
 
-  const img = await Jimp.read(inPath);
+  const img = (await Jimp.read(inPath)) as JimpInstance;
   resizeCoverDisplay(img);
   const outPath = path.join(outDir, "frame_0000.png");
-  await img.write(outPath);
+  await img.write(outPath as `${string}.png`);
   return [outPath];
 }
 
@@ -141,19 +146,21 @@ export async function extractFramesFromFile(inPath, outDir) {
  * GMK67-S device. Every upload rewrites the device's entire image memory:
  * one file uses the full 36-frame budget, two files split it 18/18 (with
  * leftover frames from a shorter file going to the other).
- * @param {string|string[]} files - 1 or 2 source image file paths
- * @param {Object} [options={}] - Upload options
- * @returns {Promise<void>}
+ * @param files - 1 or 2 source image file paths
+ * @param options - Upload options
  */
-export async function processAndSend(files, { showAfter = true, frameDuration } = {}) {
-  if (!Array.isArray(files)) files = [files];
-  if (files.length < 1 || files.length > 2) {
+export async function processAndSend(
+  files: string | string[],
+  { showAfter = true, frameDuration }: UploadOptions = {}
+): Promise<void> {
+  const fileList = Array.isArray(files) ? files : [files];
+  if (fileList.length < 1 || fileList.length > 2) {
     throw new Error("processAndSend expects 1 or 2 file paths");
   }
 
-  const tmpDirs = [];
+  const tmpDirs: string[] = [];
 
-  async function extractFrames(inputPath) {
+  async function extractFrames(inputPath: string): Promise<string[]> {
     if (!fs.existsSync(inputPath))
       throw new Error(`Input file not found: ${inputPath}`);
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gmk67s-frames-"));
@@ -169,8 +176,8 @@ export async function processAndSend(files, { showAfter = true, frameDuration } 
     // (unverified for this device — see SPEC.md)
     const MAX_TOTAL_FRAMES = 36;
 
-    let frames0 = await extractFrames(files[0]);
-    let frames1 = files[1] !== undefined ? await extractFrames(files[1]) : null;
+    let frames0 = await extractFrames(fileList[0]);
+    let frames1 = fileList[1] !== undefined ? await extractFrames(fileList[1]) : null;
 
     if (frames1) {
       if (frames0.length + frames1.length > MAX_TOTAL_FRAMES) {
@@ -224,16 +231,16 @@ export async function processAndSend(files, { showAfter = true, frameDuration } 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const usage =
     "Usage:\n" +
-    "  node src/sendImageMagick.js <file1> [file2] [--ms <delay>]\n" +
+    "  bun src/sendImageMagick.ts <file1> [file2] [--ms <delay>]\n" +
     "\n" +
     "Options:\n" +
     "  --ms <number>  Animation delay in milliseconds (min 60, default 100 for GIFs)";
 
-  let files, msRaw;
+  let files: string[], msRaw: string | undefined;
   try {
     ({ files, ms: msRaw } = parseUploadArgv(process.argv));
   } catch (err) {
-    console.error(err.message);
+    console.error((err as Error).message);
     console.error(usage);
     process.exit(1);
   }
@@ -243,7 +250,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
 
-  let frameDuration;
+  let frameDuration: number | undefined;
   if (msRaw !== undefined) {
     if (Number.isNaN(Number(msRaw))) {
       console.error("--ms must be a number (milliseconds between frames, min 60)");
@@ -257,3 +264,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   });
 }
+
+export type { UploadOptions };

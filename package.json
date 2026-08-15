@@ -1,23 +1,24 @@
 {
   "name": "gmk67s",
   "version": "0.1.0",
-  "description": "Node.js CLI for uploading images and configuring lighting on the GMK67-S keyboard's LCD/RGB via HID protocol",
+  "description": "TypeScript CLI (Bun) for uploading images and configuring lighting on the GMK67-S keyboard's LCD/RGB via HID protocol",
   "type": "module",
   "exports": {
-    ".": "./src/api.js"
+    ".": "./src/api.ts"
   },
   "scripts": {
-    "cli": "node src/cli.js",
-    "tui": "node src/tui.js",
-    "timesync": "node src/timesync.js",
-    "upload": "node src/sendImageMagick.js",
-    "lights": "node src/configureLights.js",
-    "preset": "node src/loadPreset.js",
-    "diagnostic": "node src/diagnostic.js",
-    "restore-factory": "node src/restoreFactory.js"
+    "typecheck": "tsc --noEmit",
+    "cli": "bun src/cli.ts",
+    "tui": "bun src/tui.tsx",
+    "timesync": "bun src/timesync.ts",
+    "upload": "bun src/sendImageMagick.ts",
+    "lights": "bun src/configureLights.ts",
+    "preset": "bun src/loadPreset.ts",
+    "diagnostic": "bun src/diagnostic.ts",
+    "restore-factory": "bun src/restoreFactory.ts"
   },
   "bin": {
-    "gmk67s": "./src/cli.js"
+    "gmk67s": "./src/cli.ts"
   },
   "dependencies": {
     "ink": "^5.2.1",
@@ -26,9 +27,16 @@
     "omggif": "^1.0.10",
     "react": "^18.3.1"
   },
-  "engines": {
-    "node": ">=18.0.0"
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "@types/omggif": "^1.0.5",
+    "@types/react": "^18.3.12",
+    "typescript": "^5.7.2"
   },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "packageManager": "bun@1.3.14",
   "keywords": [
     "gmk67s",
     "hid",

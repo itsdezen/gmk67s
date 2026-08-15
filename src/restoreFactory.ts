@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * @fileoverview Factory-default restore utility for the GMK67-S keyboard.
  * Writes the FACTORY_CONFIG baseline (see lib/device.js, SPEC.md) with the
@@ -9,7 +9,7 @@
 
 import { findVerifiedDeviceInfo, restoreFactoryDefaults } from "./lib/device.js";
 
-async function main() {
+async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const assumeYes = args.includes("--yes") || args.includes("--force") || args.includes("-y");
 
@@ -17,7 +17,7 @@ async function main() {
   try {
     info = findVerifiedDeviceInfo();
   } catch (err) {
-    console.error(err.message);
+    console.error((err as Error).message);
     process.exit(1);
   }
   console.log(

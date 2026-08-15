@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * @fileoverview Time synchronization utility for the GMK67-S keyboard.
  * Sends the current system time to the device's internal clock.
@@ -9,12 +9,12 @@ import {
   syncTime,
 } from "./lib/device.js";
 
-async function main() {
+async function main(): Promise<void> {
   let info;
   try {
     info = findVerifiedDeviceInfo();
   } catch (err) {
-    console.error(err.message);
+    console.error((err as Error).message);
     process.exit(1);
   }
   console.log(

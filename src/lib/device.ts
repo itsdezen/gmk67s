@@ -6,22 +6,25 @@
  */
 
 import HID from "node-hid";
+import type { Device as HidDeviceInfo } from "node-hid";
 import { Jimp, intToRGBA } from "jimp";
 import { confirmAction } from "./confirm.js";
 
-/** @constant {number} USB Vendor ID — confirmed on real hardware via `ioreg` */
+type HidDevice = InstanceType<typeof HID.HID>;
+
+/** USB Vendor ID — confirmed on real hardware via `ioreg` */
 const VENDOR_ID = 0x320f;
 
-/** @constant {number} USB Product ID — confirmed on real hardware via `ioreg` */
+/** USB Product ID — confirmed on real hardware via `ioreg` */
 const PRODUCT_ID = 0x5055;
 
-/** @constant {string} Expected USB product name, matched loosely (case-insensitive substring) */
+/** Expected USB product name, matched loosely (case-insensitive substring) */
 const EXPECTED_PRODUCT_NAME = "ZUOYA GMK67-S";
 
-/** @constant {number} HID Report ID used for all communications */
+/** HID Report ID used for all communications */
 const REPORT_ID = 0x04;
 
-/** @constant {number} Number of data bytes per frame packet */
+/** Number of data bytes per frame packet */
 const BYTES_PER_FRAME = 0x38;
 
 // GMK67-S LCD: 128x128 (1:1), RGB565. Confirmed on real hardware — 128x128
@@ -30,24 +33,26 @@ const BYTES_PER_FRAME = 0x38;
 const DISPLAY_WIDTH = 128;
 const DISPLAY_HEIGHT = 128;
 
-/** @type {boolean} Enable verbose protocol debug logging. Set via DEBUG=1 env var. */
+/** Enable verbose protocol debug logging. Set via DEBUG=1 env var. */
 let DEBUG = process.env.DEBUG === "1";
 
 /** Toggle debug logging at runtime */
-function setDebug(enabled) { DEBUG = !!enabled; }
+function setDebug(enabled: boolean): void {
+  DEBUG = !!enabled;
+}
 
 // -------------------------------------------------------
 // Common Utilities
 // -------------------------------------------------------
 
-function delay(ms) {
+function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
  * Converts RGB color values to RGB565 format (16-bit color)
  */
-function toRGB565(r, g, b) {
+function toRGB565(r: number, g: number, b: number): number {
   const r5 = (r >> 3) & 0x1f;
   const g6 = (g >> 2) & 0x3f;
   const b5 = (b >> 3) & 0x1f;
@@ -58,11 +63,94 @@ function toRGB565(r, g, b) {
  * Converts a decimal number (0-99) to BCD (Binary-Coded Decimal) format
  * Used for encoding time/date values in device protocol
  */
-function toHexNum(num) {
+function toHexNum(num: number): number {
   if (num < 0 || num >= 100) throw new RangeError("toHexNum expects 0..99");
   const low = num % 10;
   const high = Math.floor(num / 10);
   return (high << 4) | low;
+}
+
+// -------------------------------------------------------
+// Config Types
+// -------------------------------------------------------
+
+interface UnderglowHue {
+  red?: number;
+  green?: number;
+  blue?: number;
+}
+
+interface UnderglowConfig {
+  effect?: number;
+  brightness?: number;
+  speed?: number;
+  orientation?: number;
+  rainbow?: number;
+  hue?: UnderglowHue;
+}
+
+interface LedConfig {
+  mode?: number;
+  saturation?: number;
+  rainbow?: number;
+  color?: number;
+}
+
+interface ConfigChanges {
+  underglow?: UnderglowConfig;
+  winlock?: number;
+  led?: LedConfig;
+  showImage?: number;
+  image1Frames?: number;
+  image2Frames?: number;
+  time?: boolean;
+  frameDuration?: number;
+}
+
+interface ParsedTime {
+  second: number;
+  minute: number;
+  hour: number;
+  dayOfWeek: number;
+  date: number;
+  month: number;
+  year: number;
+}
+
+interface ParsedConfig {
+  underglow: {
+    effect: number;
+    brightness: number;
+    speed: number;
+    orientation: number;
+    rainbow: number;
+    hue: { red: number; green: number; blue: number };
+  };
+  winlock: number;
+  led: {
+    mode: number;
+    saturation: number;
+    rainbow: number;
+    color: number;
+  };
+  showImage: number;
+  image1Frames: number;
+  time: ParsedTime;
+  frameDuration: number;
+  image2Frames: number;
+  _raw: Buffer;
+}
+
+interface UploadOptions {
+  showAfter?: boolean;
+  frameDuration?: number;
+}
+
+interface KeyboardInfo {
+  manufacturer: string;
+  product: string;
+  vendorId: number;
+  productId: number;
 }
 
 // -------------------------------------------------------
@@ -71,9 +159,9 @@ function toHexNum(num) {
 
 /**
  * Searches for the GMK67-S device in the system's HID device list
- * @returns {Object|undefined} HID device info object if found, undefined otherwise
+ * @returns HID device info object if found, undefined otherwise
  */
-function findDeviceInfo() {
+function findDeviceInfo(): HidDeviceInfo | undefined {
   const devices = HID.devices();
 
   const matching = devices.filter(
@@ -99,10 +187,10 @@ function findDeviceInfo() {
  * allowed to touch it. VID/PID alone isn't a hard guarantee — this also
  * cross-checks the USB product string when the OS/driver provides one, and
  * refuses to proceed rather than risk sending commands to the wrong device.
- * @returns {Object} Verified HID device info
- * @throws {Error} If no matching device is found, or the product name doesn't match
+ * @returns Verified HID device info
+ * @throws If no matching device is found, or the product name doesn't match
  */
-function findVerifiedDeviceInfo() {
+function findVerifiedDeviceInfo(): HidDeviceInfo {
   const info = findDeviceInfo();
   if (!info) {
     throw new Error(
@@ -124,19 +212,19 @@ function findVerifiedDeviceInfo() {
  * Opens a connection to the GMK67-S device with retry logic.
  * Always goes through findVerifiedDeviceInfo() first — this is the single
  * choke point every protocol operation passes through before touching hardware.
- * @param {number} [retries=2] - Number of retry attempts if opening fails
- * @returns {HID.HID} Connected HID device object
+ * @param retries - Number of retry attempts if opening fails
+ * @returns Connected HID device object
  */
-function openDevice(retries = 2) {
+function openDevice(retries = 2): HidDevice {
   const info = findVerifiedDeviceInfo();
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return new HID.HID(info.path);
+      return new HID.HID(info.path!);
     } catch (e) {
       if (attempt === retries) {
         throw new Error(
-          `Failed to open HID device after ${retries + 1} attempts: ${e.message}`
+          `Failed to open HID device after ${retries + 1} attempts: ${(e as Error).message}`
         );
       }
       const waitMs = 10;
@@ -144,16 +232,18 @@ function openDevice(retries = 2) {
       while (Date.now() - start < waitMs) {}
     }
   }
+
+  throw new Error("Failed to open HID device: unreachable");
 }
 
 /**
  * Drains/clears any pending data from the device buffer
- * @param {HID.HID} device - Connected HID device
- * @param {number} [timeoutMs=200] - Maximum time to wait for data to drain
- * @returns {Promise<string[]>} Array of hex strings representing drained data
+ * @param device - Connected HID device
+ * @param timeoutMs - Maximum time to wait for data to drain
+ * @returns Array of hex strings representing drained data
  */
-async function drainDevice(device, timeoutMs = 200) {
-  const drained = [];
+async function drainDevice(device: HidDevice, timeoutMs = 200): Promise<string[]> {
+  const drained: string[] = [];
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
@@ -175,7 +265,7 @@ async function drainDevice(device, timeoutMs = 200) {
  * Calculates a 16-bit checksum for the device protocol
  * Sums bytes from position 3 to 63 in the buffer
  */
-function checksum(buf) {
+function checksum(buf: Buffer): number {
   let sum = 0;
   for (let i = 3; i < 64; i++) {
     sum = (sum + (buf[i] & 0xff)) & 0xffff;
@@ -183,13 +273,13 @@ function checksum(buf) {
   return sum;
 }
 
-async function readResponse(device, timeoutMs = 150) {
+async function readResponse(device: HidDevice, timeoutMs = 150): Promise<Buffer | null> {
   try {
     const data = device.readTimeout(timeoutMs);
     if (!data || data.length === 0) return null;
     return Buffer.from(data);
   } catch (e) {
-    if (DEBUG) console.warn(`  [readResponse] HID read error: ${e.message}`);
+    if (DEBUG) console.warn(`  [readResponse] HID read error: ${(e as Error).message}`);
     return null;
   }
 }
@@ -197,7 +287,12 @@ async function readResponse(device, timeoutMs = 150) {
 /**
  * Sends a command to the device and optionally waits for acknowledgment
  */
-async function send(device, command, data60 = null, waitForAck = true) {
+async function send(
+  device: HidDevice,
+  command: number,
+  data60: Buffer | null = null,
+  waitForAck = true
+): Promise<boolean> {
   if (data60 === null) {
     data60 = Buffer.alloc(60, 0x00);
   }
@@ -248,7 +343,12 @@ async function send(device, command, data60 = null, waitForAck = true) {
 /**
  * Attempts to send a command with automatic retry logic
  */
-async function trySend(device, cmd, payload = undefined, tries = 3) {
+async function trySend(
+  device: HidDevice,
+  cmd: number,
+  payload: Buffer | undefined = undefined,
+  tries = 3
+): Promise<boolean> {
   for (let i = 0; i < tries; i++) {
     try {
       const success =
@@ -277,13 +377,18 @@ async function trySend(device, cmd, payload = undefined, tries = 3) {
 
 /**
  * Sends a command using the position-addressed protocol format (length + 24-bit position)
- * @param {HID.HID} device - Connected HID device
- * @param {number} commandId - Command byte (1-255)
- * @param {Buffer} data - Data payload (max 56 bytes)
- * @param {number} [pos=0] - Position offset (24-bit)
- * @returns {Promise<Buffer|null>} Response data from byte 4 onwards, or null if failed
+ * @param device - Connected HID device
+ * @param commandId - Command byte (1-255)
+ * @param data - Data payload (max 56 bytes)
+ * @param pos - Position offset (24-bit)
+ * @returns Response data from byte 4 onwards, or null if failed
  */
-async function sendWithPosition(device, commandId, data, pos = 0) {
+async function sendWithPosition(
+  device: HidDevice,
+  commandId: number,
+  data: Buffer,
+  pos = 0
+): Promise<Buffer | null> {
   if (commandId < 1 || commandId > 0xff) {
     throw new Error("Command ID must be between 1 and 255");
   }
@@ -338,10 +443,10 @@ async function sendWithPosition(device, commandId, data, pos = 0) {
 
 /**
  * Reads the current configuration from the device
- * @param {HID.HID} device - Connected HID device
- * @returns {Promise<Buffer>} 48-byte configuration buffer
+ * @param device - Connected HID device
+ * @returns 48-byte configuration buffer
  */
-async function readConfigFromDevice(device) {
+async function readConfigFromDevice(device: HidDevice): Promise<Buffer> {
   console.log("Reading configuration...");
 
   await sendWithPosition(device, 0x01, Buffer.alloc(0), 0);
@@ -372,10 +477,10 @@ async function readConfigFromDevice(device) {
 
 /**
  * Parses 48-byte config buffer into structured object
- * @param {Buffer} configBuffer - 48-byte configuration
- * @returns {Object} Parsed configuration
+ * @param configBuffer - 48-byte configuration
+ * @returns Parsed configuration
  */
-function parseConfigBuffer(configBuffer) {
+function parseConfigBuffer(configBuffer: Buffer): ParsedConfig {
   return {
     underglow: {
       effect: configBuffer[1],
@@ -415,11 +520,11 @@ function parseConfigBuffer(configBuffer) {
 
 /**
  * Builds 48-byte config buffer from existing config + changes
- * @param {Object} existingConfig - Current config (from parseConfigBuffer)
- * @param {Object} changes - Changes to apply
- * @returns {Buffer} Updated 48-byte configuration buffer
+ * @param existingConfig - Current config (from parseConfigBuffer)
+ * @param changes - Changes to apply
+ * @returns Updated 48-byte configuration buffer
  */
-function buildConfigBuffer(existingConfig, changes) {
+function buildConfigBuffer(existingConfig: ParsedConfig, changes: ConfigChanges): Buffer {
   const buffer = Buffer.from(existingConfig._raw);
 
   if (changes.underglow) {
@@ -471,11 +576,11 @@ function buildConfigBuffer(existingConfig, changes) {
  * Writes config buffer to device.
  * Returns false (rather than always true) if any step fails to ACK, so callers
  * can detect write failures and trigger rollback.
- * @param {HID.HID} device - Connected HID device
- * @param {Buffer} configBuffer - 48-byte configuration to write
- * @returns {Promise<boolean>} True only if every step of the write was acknowledged
+ * @param device - Connected HID device
+ * @param configBuffer - 48-byte configuration to write
+ * @returns True only if every step of the write was acknowledged
  */
-async function writeConfigToDevice(device, configBuffer) {
+async function writeConfigToDevice(device: HidDevice, configBuffer: Buffer): Promise<boolean> {
   console.log("Writing configuration...");
   console.log(`  Writing 48 bytes: ...${configBuffer.slice(33, 47).toString('hex')}...`);
   console.log(`  Byte 33 (showImage): ${configBuffer[33]}, Byte 34 (image1Frames): ${configBuffer[34]}, Byte 46 (image2Frames): ${configBuffer[46]}`);
@@ -497,12 +602,16 @@ async function writeConfigToDevice(device, configBuffer) {
  * Writes config buffer to device, rolling back to `previousConfigBuffer` if the
  * write fails to ACK — avoids leaving the keyboard in an undefined state after
  * a partial/failed write.
- * @param {HID.HID} device - Connected HID device
- * @param {Buffer} newConfigBuffer - Configuration to write
- * @param {Buffer} previousConfigBuffer - Configuration to restore if the write fails
- * @returns {Promise<boolean>} True if the new config was written successfully
+ * @param device - Connected HID device
+ * @param newConfigBuffer - Configuration to write
+ * @param previousConfigBuffer - Configuration to restore if the write fails
+ * @returns True if the new config was written successfully
  */
-async function writeConfigWithRollback(device, newConfigBuffer, previousConfigBuffer) {
+async function writeConfigWithRollback(
+  device: HidDevice,
+  newConfigBuffer: Buffer,
+  previousConfigBuffer: Buffer
+): Promise<boolean> {
   const success = await writeConfigToDevice(device, newConfigBuffer);
   if (success) return true;
 
@@ -533,17 +642,23 @@ const FACTORY_CONFIG = Buffer.from([
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x01, 0x00,
 ]);
 
+interface RestoreOptions {
+  assumeYes?: boolean;
+}
+
 /**
  * Restores the keyboard to the FACTORY_CONFIG baseline, preserving current time.
  * Reads the current config first so a failed write can roll back.
  * Erases the current configuration, so this requires interactive confirmation
  * unless assumeYes is set.
- * @param {Object} [device=null] - Optional already-open HID device
- * @param {Object} [options={}]
- * @param {boolean} [options.assumeYes=false] - Skip the confirmation prompt
- * @returns {Promise<boolean>} True if factory config was written successfully
+ * @param device - Optional already-open HID device
+ * @param options
+ * @returns True if factory config was written successfully
  */
-async function restoreFactoryDefaults(device = null, { assumeYes = false } = {}) {
+async function restoreFactoryDefaults(
+  device: HidDevice | null = null,
+  { assumeYes = false }: RestoreOptions = {}
+): Promise<boolean> {
   const shouldClose = !device;
   if (!device) {
     device = openDevice();
@@ -589,7 +704,7 @@ async function restoreFactoryDefaults(device = null, { assumeYes = false } = {})
 // Wait-until-ready logic
 // -------------------------------------------------------
 
-async function waitForReady(device, timeoutMs = 1000) {
+async function waitForReady(device: HidDevice, timeoutMs = 1000): Promise<boolean> {
   console.log("Waiting for device to report ready (0x23)...");
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -609,12 +724,12 @@ async function waitForReady(device, timeoutMs = 1000) {
 // -------------------------------------------------------
 
 async function sendConfigFrame(
-  device,
+  device: HidDevice,
   shownImage = 0,
   image0NumOfFrames = 1,
   image1NumOfFrames = 1,
-  preserveSettings = {}
-) {
+  preserveSettings: { underglow?: UnderglowConfig; led?: LedConfig } = {}
+): Promise<boolean> {
   const now = new Date();
 
   const frameDurationMs = 1000;
@@ -669,10 +784,10 @@ async function sendConfigFrame(
  * Converts an image to raw RGB565 pixel data padded to 32KB.
  * Uses Jimp v1 API: `Jimp.read()`, `image.resize({ w, h })`, and reads bitmap
  * data directly via bitmap.width/height + intToRGBA(image.getPixelColor(x, y)).
- * @param {string} imagePath - Path to the image file to load
- * @returns {Promise<Buffer>} Padded buffer containing RGB565 pixel data
+ * @param imagePath - Path to the image file to load
+ * @returns Padded buffer containing RGB565 pixel data
  */
-async function buildRawImageData(imagePath) {
+async function buildRawImageData(imagePath: string): Promise<Buffer> {
   console.log(`Loading image: ${imagePath}`);
   const img = await Jimp.read(imagePath);
 
@@ -703,7 +818,12 @@ async function buildRawImageData(imagePath) {
  * Transmits frame data to the device in 56-byte chunks with position tracking
  * NOTE: Must call sendWithPosition(0x01/0x23) upload-session start before calling this!
  */
-async function sendFrameData(device, data, label = "data", startPosition = 0) {
+async function sendFrameData(
+  device: HidDevice,
+  data: Buffer,
+  label = "data",
+  startPosition = 0
+): Promise<void> {
   const total = data.length;
   console.log(`Uploading ${total} bytes of ${label} (starting at position ${startPosition})...`);
 
@@ -744,21 +864,22 @@ async function sendFrameData(device, data, label = "data", startPosition = 0) {
  * full 36-frame budget); passing two images splits the budget between them.
  * Preserves lighting/LED/other settings via read-modify-write, and rolls
  * back the config write if it fails to ACK.
- * @param {Array<string|string[]>} images - 1 or 2 entries; each entry is either
- *   a single image path or an array of frame paths (for animations)
- * @param {Object} [options={}] - Upload options
- * @param {boolean} [options.showAfter=true] - Show the uploaded image after upload (vs. the clock)
- * @param {number} [options.frameDuration] - Animation delay in ms (min 60)
- * @returns {Promise<boolean>} True if upload completed successfully
+ * @param images - 1 or 2 entries; each entry is either a single image path
+ *   or an array of frame paths (for animations)
+ * @param options - Upload options
+ * @returns True if upload completed successfully
  */
-async function uploadImageToDevice(images, options = {}) {
+async function uploadImageToDevice(
+  images: Array<string | string[]>,
+  options: UploadOptions = {}
+): Promise<boolean> {
   const { showAfter = true, frameDuration } = options;
 
   if (!Array.isArray(images) || images.length < 1 || images.length > 2) {
     throw new Error("uploadImageToDevice expects an array of 1 or 2 images (each a path or an array of frame paths)");
   }
 
-  const toPathList = (entry) => (Array.isArray(entry) ? entry : [entry]);
+  const toPathList = (entry: string | string[]): string[] => (Array.isArray(entry) ? entry : [entry]);
   const paths0 = toPathList(images[0]);
   const paths1 = images[1] !== undefined ? toPathList(images[1]) : null;
 
@@ -788,12 +909,12 @@ async function uploadImageToDevice(images, options = {}) {
     }
 
     console.log("Building image data...");
-    const image1Buffers = [];
+    const image1Buffers: Buffer[] = [];
     for (const p of paths0) {
       image1Buffers.push(await buildRawImageData(p));
     }
 
-    const image2Buffers = [];
+    const image2Buffers: Buffer[] = [];
     if (paths1) {
       for (const p of paths1) {
         image2Buffers.push(await buildRawImageData(p));
@@ -805,7 +926,7 @@ async function uploadImageToDevice(images, options = {}) {
     console.log(`  Image 2: ${paths1 ? `${image2Buffers.length} frame(s)` : "not present"}`);
     console.log(`  Total: ${concatenatedData.length} bytes (${image1Buffers.length + image2Buffers.length} frames)`);
 
-    const configChanges = {
+    const configChanges: ConfigChanges = {
       showImage: shownImage,
       image1Frames: image1FrameCount,
       image2Frames: image2FrameCount,
@@ -843,7 +964,7 @@ async function uploadImageToDevice(images, options = {}) {
 // Lighting Configuration Functions
 // -------------------------------------------------------
 
-function buildLightingFrame(config) {
+function buildLightingFrame(config: ConfigChanges): Buffer {
   const now = new Date();
   const buf = Buffer.alloc(64, 0x00);
 
@@ -903,7 +1024,7 @@ function buildLightingFrame(config) {
   return buf;
 }
 
-async function sendLightingFrame(device, frameData, waitForAck = true) {
+async function sendLightingFrame(device: HidDevice, frameData: Buffer, waitForAck = true): Promise<boolean> {
   if (!Buffer.isBuffer(frameData) || frameData.length !== 64) {
     throw new Error("Lighting frame must be exactly 64 bytes");
   }
@@ -934,7 +1055,7 @@ async function sendLightingFrame(device, frameData, waitForAck = true) {
   }
 }
 
-async function trySendLightingFrame(device, frameData, tries = 3) {
+async function trySendLightingFrame(device: HidDevice, frameData: Buffer, tries = 3): Promise<boolean> {
   for (let i = 0; i < tries; i++) {
     try {
       const success = await sendLightingFrame(device, frameData, true);
@@ -954,10 +1075,10 @@ async function trySendLightingFrame(device, frameData, tries = 3) {
  * Complete pipeline to configure lighting on the GMK67-S device.
  * Read-modify-write: reads current config, modifies only requested fields,
  * writes back — rolling back to the original config if the write fails to ACK.
- * @param {Object} changes - Lighting configuration changes to apply
- * @returns {Promise<boolean>} True if configuration was successfully applied
+ * @param changes - Lighting configuration changes to apply
+ * @returns True if configuration was successfully applied
  */
-async function configureLighting(changes, device = null) {
+async function configureLighting(changes: ConfigChanges, device: HidDevice | null = null): Promise<boolean> {
   const shouldClose = !device;
   if (!device) {
     device = openDevice();
@@ -991,7 +1112,7 @@ async function configureLighting(changes, device = null) {
 /**
  * Syncs time to the keyboard, preserving all other settings.
  */
-async function syncTime(date = new Date(), device = null) {
+async function syncTime(date: Date = new Date(), device: HidDevice | null = null): Promise<boolean> {
   return await configureLighting({ time: true }, device);
 }
 
@@ -1000,7 +1121,7 @@ async function syncTime(date = new Date(), device = null) {
  * (avoids synchronous getManufacturerString()/getProductString() calls that
  * can hang the event loop on some Linux systems).
  */
-function getKeyboardInfo() {
+function getKeyboardInfo(): KeyboardInfo {
   const info = findVerifiedDeviceInfo();
   return {
     manufacturer: info.manufacturer || "Unknown",
@@ -1018,7 +1139,7 @@ function getKeyboardInfo() {
  * Safely closes a HID device, avoiding SIGSEGV on Linux caused by node-hid's
  * internal read thread still being active when close() is called.
  */
-async function safeClose(device) {
+async function safeClose(device: HidDevice | null | undefined): Promise<void> {
   if (!device) return;
   try {
     device.close();
@@ -1030,6 +1151,19 @@ async function safeClose(device) {
 // -------------------------------------------------------
 // Exports
 // -------------------------------------------------------
+
+export type {
+  HidDevice,
+  HidDeviceInfo,
+  UnderglowHue,
+  UnderglowConfig,
+  LedConfig,
+  ConfigChanges,
+  ParsedConfig,
+  ParsedTime,
+  UploadOptions,
+  KeyboardInfo,
+};
 
 export {
   // Constants

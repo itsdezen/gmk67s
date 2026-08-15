@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * @fileoverview Preset loader for GMK67-S keyboard configurations.
  * Allows quick loading of predefined lighting configurations.
@@ -8,11 +8,21 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { configureLighting } from "./lib/device.js";
+import type { ConfigChanges } from "./lib/device.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-function loadPresets(presetsPath) {
+interface Preset {
+  description: string;
+  config: ConfigChanges;
+}
+
+interface PresetsFile {
+  presets: Record<string, Preset>;
+}
+
+function loadPresets(presetsPath?: string): PresetsFile {
   const defaultPath = path.join(__dirname, "../presets.json");
   const filePath = presetsPath || defaultPath;
 
@@ -24,7 +34,7 @@ function loadPresets(presetsPath) {
   return JSON.parse(data);
 }
 
-function listPresets(presets) {
+function listPresets(presets: PresetsFile): void {
   console.log("\n📋 Available Presets:\n");
   const entries = Object.entries(presets.presets);
 
@@ -38,11 +48,11 @@ function listPresets(presets) {
 
 /**
  * Applies a preset configuration
- * @param {string} presetName - Name of preset to apply
- * @param {string} [presetsPath] - Optional custom presets file path
- * @returns {Promise<boolean>} True if preset was successfully applied
+ * @param presetName - Name of preset to apply
+ * @param presetsPath - Optional custom presets file path
+ * @returns True if preset was successfully applied
  */
-async function applyPreset(presetName, presetsPath) {
+async function applyPreset(presetName: string, presetsPath?: string): Promise<boolean> {
   const presets = loadPresets(presetsPath);
   const preset = presets.presets[presetName];
 
@@ -58,8 +68,12 @@ async function applyPreset(presetName, presetsPath) {
   return await configureLighting(preset.config);
 }
 
-function parseArgs(argv) {
-  const args = {};
+interface CliArgs {
+  [key: string]: string | boolean;
+}
+
+function parseArgs(argv: string[]): CliArgs {
+  const args: CliArgs = {};
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg.startsWith("--")) {
@@ -68,7 +82,7 @@ function parseArgs(argv) {
     }
 
     const eqIndex = arg.indexOf("=");
-    let key, value;
+    let key: string, value: string | boolean;
 
     if (eqIndex !== -1) {
       key = arg.slice(2, eqIndex);
@@ -89,15 +103,15 @@ function parseArgs(argv) {
   return args;
 }
 
-async function main() {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv);
 
   if (args.help || args.h) {
     console.log(`
 GMK67-S Preset Loader
 
-Usage: node loadPreset.js [preset-name] [options]
-   or: npm run preset [preset-name]
+Usage: bun src/loadPreset.ts [preset-name] [options]
+   or: bun run preset [preset-name]
 
 Options:
   --list, -l              List all available presets
@@ -105,29 +119,29 @@ Options:
   --help, -h              Show this help message
 
 Examples:
-  node loadPreset.js gaming
-  node loadPreset.js --list
-  node loadPreset.js party --file ./my-presets.json
-  npm run preset gaming
+  bun src/loadPreset.ts gaming
+  bun src/loadPreset.ts --list
+  bun src/loadPreset.ts party --file ./my-presets.json
+  bun run preset gaming
     `);
     return;
   }
 
   try {
     if (args.list || args.l) {
-      const presets = loadPresets(args.file);
+      const presets = loadPresets(typeof args.file === "string" ? args.file : undefined);
       listPresets(presets);
       return;
     }
 
     if (!args.preset) {
       console.error("❌ Error: Preset name required");
-      console.log("Usage: node loadPreset.js [preset-name]");
+      console.log("Usage: bun src/loadPreset.ts [preset-name]");
       console.log("       Use --list to see available presets");
       process.exit(1);
     }
 
-    const success = await applyPreset(args.preset, args.file);
+    const success = await applyPreset(args.preset as string, typeof args.file === "string" ? args.file : undefined);
 
     if (success) {
       console.log("\n✅ Preset applied successfully!\n");
@@ -136,7 +150,7 @@ Examples:
       process.exit(1);
     }
   } catch (error) {
-    console.error(`\n❌ Error: ${error.message}\n`);
+    console.error(`\n❌ Error: ${(error as Error).message}\n`);
     process.exit(1);
   }
 }

@@ -6,16 +6,22 @@
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
+interface ConfirmOptions {
+  assumeYes?: boolean;
+}
+
 /**
  * Prompts the user with a y/N question before a destructive action.
  * Fails closed (returns false) when running non-interactively without
  * assumeYes, instead of hanging on stdin that will never arrive.
- * @param {string} message - Question to show (without the "[y/N]" suffix)
- * @param {Object} [options]
- * @param {boolean} [options.assumeYes=false] - Skip the prompt and return true
- * @returns {Promise<boolean>} True if the action should proceed
+ * @param message - Question to show (without the "[y/N]" suffix)
+ * @param options
+ * @returns True if the action should proceed
  */
-async function confirmAction(message, { assumeYes = false } = {}) {
+async function confirmAction(
+  message: string,
+  { assumeYes = false }: ConfirmOptions = {}
+): Promise<boolean> {
   if (assumeYes) return true;
 
   if (!input.isTTY) {
