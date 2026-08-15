@@ -1,5 +1,5 @@
 {
-  "name": "gmk67s-node",
+  "name": "gmk67s",
   "version": "0.1.0",
   "description": "Node.js CLI for uploading images and configuring lighting on the GMK67-S keyboard's LCD/RGB via HID protocol",
   "type": "module",

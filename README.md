@@ -1,4 +1,4 @@
-# gmk67s-node
+# gmk67s
 
 Node.js CLI for the GMK67-S keyboard: LCD image/GIF upload, RGB underglow +
 LED configuration, lighting presets, time sync, config dump, and
@@ -85,7 +85,7 @@ Every subcommand also works as `node src/<script>.js [options]` directly.
 Or as a library:
 
 ```js
-import gmk67s from "gmk67s-node";
+import gmk67s from "gmk67s";
 
 await gmk67s.setLighting({ underglow: { effect: 5, brightness: 7 } });
 await gmk67s.uploadImage("cat.png", 0, { slot0File: "cat.png" });

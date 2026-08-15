@@ -387,7 +387,7 @@ function App() {
   return h(
     Box,
     { flexDirection: "column", padding: 1 },
-    h(Text, { bold: true }, "GMK67-S TUI"),
+    h(Text, { bold: true }, "GMK67-S"),
     h(
       Box,
       { marginBottom: 1 },
