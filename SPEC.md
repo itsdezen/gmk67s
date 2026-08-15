@@ -22,10 +22,10 @@ See `findVerifiedDeviceInfo()` in `src/lib/device.js`.
 
 | Field | Value |
 |---|---|
-| Resolution | 180 x 180 px (1:1) |
+| Resolution | 128 x 128 px (1:1) — confirmed on real hardware |
 | Pixel format | RGB565 (16-bit: 5 bits R, 6 bits G, 5 bits B), big-endian per pixel |
-| Raw frame size | 180 × 180 × 2 = 64800 bytes |
-| Padded frame size | 65536 bytes (rounded up to the next 32KB boundary: `(rawSize + 0x7fff) & ~0x7fff`) |
+| Raw frame size | 128 × 128 × 2 = 32768 bytes |
+| Padded frame size | 32768 bytes (already a 32KB multiple, so the padding formula `(rawSize + 0x7fff) & ~0x7fff` is a no-op at this resolution) |
 | Slots | 2 independent image slots (0 and 1), each holding 1+ frames for animation |
 
 ## 64-byte HID report structure

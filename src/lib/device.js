@@ -24,16 +24,11 @@ const REPORT_ID = 0x04;
 /** @constant {number} Number of data bytes per frame packet */
 const BYTES_PER_FRAME = 0x38;
 
-// GMK67-S LCD: 180x180 (1:1), RGB565. See SPEC.md.
-// Overridable via GMK67S_DISPLAY_SIZE for on-hardware resolution testing
-// (e.g. `GMK67S_DISPLAY_SIZE=160 node src/sendImageMagick.js ...`) — remove
-// this override once the real resolution is confirmed and update the
-// constant + SPEC.md instead of relying on the env var long-term.
-const DISPLAY_SIZE_OVERRIDE = process.env.GMK67S_DISPLAY_SIZE
-  ? parseInt(process.env.GMK67S_DISPLAY_SIZE, 10)
-  : null;
-const DISPLAY_WIDTH = DISPLAY_SIZE_OVERRIDE || 180;
-const DISPLAY_HEIGHT = DISPLAY_SIZE_OVERRIDE || 180;
+// GMK67-S LCD: 128x128 (1:1), RGB565. Confirmed on real hardware — 128x128
+// renders correctly; a diagonal-shear test pattern ruled out every other
+// candidate size. See SPEC.md.
+const DISPLAY_WIDTH = 128;
+const DISPLAY_HEIGHT = 128;
 
 /** @type {boolean} Enable verbose protocol debug logging. Set via DEBUG=1 env var. */
 let DEBUG = process.env.DEBUG === "1";
