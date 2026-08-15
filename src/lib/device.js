@@ -760,10 +760,31 @@ async function uploadImageToDevice(imagePath, imageIndex = 0, options = {}) {
     throw new Error(`Too many frames: ${totalFrames} (slot0: ${slot0FrameCount}, slot1: ${slot1FrameCount}, max 36 total)`);
   }
 
+  // The device firmware writes both slots' image data in a single contiguous
+  // flash write, and the protocol has no command to read back an existing
+  // slot's image — so uploading to only one slot unavoidably blanks the
+  // other slot's current image (no way to preserve it). This is a guaranteed
+  // side effect, not a risk, so it's always confirmed regardless of
+  // confirmOverwrite — assumeYes/--yes is required to skip it non-interactively.
+  const blanksOtherSlot = Boolean(paths0) !== Boolean(paths1);
+
   let device = openDevice();
 
   try {
-    if (confirmOverwrite) {
+    if (blanksOtherSlot) {
+      const targetSlot = paths0 ? "slot 0" : "slot 1";
+      const blankedSlot = paths0 ? "slot 1" : "slot 0";
+      const confirmed = await confirmAction(
+        `Uploading only to ${targetSlot} will ERASE the current image in ${blankedSlot} ` +
+          `(the device firmware requires rewriting both slots together, and there is no way ` +
+          `to read back and preserve ${blankedSlot}'s current image). Continue?`,
+        { assumeYes }
+      );
+      if (!confirmed) {
+        console.log("Cancelled — upload not performed.");
+        return false;
+      }
+    } else if (confirmOverwrite) {
       const targets = [paths0 ? "slot 0" : null, paths1 ? "slot 1" : null].filter(Boolean).join(" and ");
       const confirmed = await confirmAction(`This will overwrite the current image in ${targets}. Continue?`, { assumeYes });
       if (!confirmed) {

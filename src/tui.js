@@ -340,6 +340,8 @@ function FileBrowserScreen({ onSelect, onCancel }) {
 function UploadScreen({ onBack }) {
   const [filePath, setFilePath] = useState(null);
   const [slot, setSlot] = useState(0);
+  const [confirming, setConfirming] = useState(false);
+  const [yesSelected, setYesSelected] = useState(false);
   const [status, setStatus] = useState(null);
 
   useInput((input, key) => {
@@ -349,6 +351,31 @@ function UploadScreen({ onBack }) {
       onBack();
       return;
     }
+
+    if (confirming) {
+      if (key.leftArrow || key.rightArrow) {
+        setYesSelected((y) => !y);
+        return;
+      }
+      if (key.escape) {
+        setConfirming(false);
+        return;
+      }
+      if (key.return) {
+        if (!yesSelected) {
+          setConfirming(false);
+          return;
+        }
+        setStatus("uploading");
+        // assumeYes: true — this screen IS the confirmation; uploadImageToDevice's
+        // own readline-based confirm can't run while Ink owns raw-mode stdin.
+        uploadImage(filePath, slot, { showAfter: true, assumeYes: true })
+          .then(() => setStatus("done"))
+          .catch((err) => setStatus(err.message));
+      }
+      return;
+    }
+
     if (key.escape) {
       onBack();
       return;
@@ -358,15 +385,37 @@ function UploadScreen({ onBack }) {
       return;
     }
     if (key.return) {
-      setStatus("uploading");
-      uploadImage(filePath, slot, { showAfter: true })
-        .then(() => setStatus("done"))
-        .catch((err) => setStatus(err.message));
+      setYesSelected(false);
+      setConfirming(true);
     }
   });
 
   if (!filePath) {
     return h(FileBrowserScreen, { onSelect: setFilePath, onCancel: onBack });
+  }
+
+  if (confirming) {
+    const otherSlot = slot === 0 ? "slot 1" : "slot 0";
+    return h(
+      Box,
+      { flexDirection: "column" },
+      h(
+        Text,
+        { color: "yellow" },
+        `⚠ Uploading only to slot ${slot} will ERASE the current image in ${otherSlot} — ` +
+          `the device requires rewriting both slots together and there's no way to read back ` +
+          `and preserve ${otherSlot}'s current image.`
+      ),
+      h(Text, null, " "),
+      h(
+        Text,
+        null,
+        h(Text, { color: !yesSelected ? "cyan" : undefined }, !yesSelected ? "▸ No" : "  No"),
+        "   ",
+        h(Text, { color: yesSelected ? "cyan" : undefined }, yesSelected ? "▸ Yes" : "  Yes")
+      ),
+      h(Text, { dimColor: true }, "←/→ choose · Enter confirm · Esc back")
+    );
   }
 
   return h(
@@ -381,7 +430,7 @@ function UploadScreen({ onBack }) {
       status !== "uploading" &&
       status !== "done" &&
       h(Text, { color: "red" }, `${status} Press any key to go back.`),
-    !status && h(Text, { dimColor: true }, "Tab: slot · Enter: upload · Esc: cancel")
+    !status && h(Text, { dimColor: true }, "Tab: slot · Enter: continue · Esc: cancel")
   );
 }
 

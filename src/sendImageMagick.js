@@ -126,7 +126,7 @@ async function extractGifFrames(inPath, outDir) {
  * @param {string} outDir - Directory to write frame files into
  * @returns {Promise<string[]>} Array of output file paths
  */
-async function extractFramesFromFile(inPath, outDir) {
+export async function extractFramesFromFile(inPath, outDir) {
   const ext = path.extname(inPath).toLowerCase();
 
   if (ext === ".gif") {
