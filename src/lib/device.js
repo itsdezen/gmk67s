@@ -478,7 +478,7 @@ function buildConfigBuffer(existingConfig, changes) {
 async function writeConfigToDevice(device, configBuffer) {
   console.log("Writing configuration...");
   console.log(`  Writing 48 bytes: ...${configBuffer.slice(33, 47).toString('hex')}...`);
-  console.log(`  Byte 33 (showImage): ${configBuffer[33]}, Byte 34 (slot0): ${configBuffer[34]}, Byte 46 (slot1): ${configBuffer[46]}`);
+  console.log(`  Byte 33 (showImage): ${configBuffer[33]}, Byte 34 (image1Frames): ${configBuffer[34]}, Byte 46 (image2Frames): ${configBuffer[46]}`);
 
   const initOk = await sendWithPosition(device, 0x01, Buffer.alloc(0), 0);
   const writeOk = await sendWithPosition(device, 0x06, configBuffer, 0);
@@ -736,65 +736,45 @@ async function sendFrameData(device, data, label = "data", startPosition = 0) {
 // -------------------------------------------------------
 
 /**
- * Complete pipeline to upload images (static or animated) to the GMK67-S device.
- * Supports multi-frame GIF uploads. Preserves lighting/LED/other settings via
- * read-modify-write, and rolls back the config write if it fails to ACK.
- * @param {string} imagePath - Path to the image file (fallback for single-slot mode)
- * @param {number} [imageIndex=0] - Target slot on device (0 or 1)
+ * Complete pipeline to upload image(s) (static or animated) to the GMK67-S
+ * device. Every upload rewrites the device's entire image memory from byte 0
+ * — there is no protocol opcode to read back an existing image, so there is
+ * no such thing as "preserving the other image" across an upload. Passing a
+ * single image means the device ends up with exactly one image (using the
+ * full 36-frame budget); passing two images splits the budget between them.
+ * Preserves lighting/LED/other settings via read-modify-write, and rolls
+ * back the config write if it fails to ACK.
+ * @param {Array<string|string[]>} images - 1 or 2 entries; each entry is either
+ *   a single image path or an array of frame paths (for animations)
  * @param {Object} [options={}] - Upload options
- * @param {boolean} [options.confirmOverwrite=false] - Prompt before overwriting the target slot(s).
- *   Off by default since the target slot is always explicit in normal CLI usage.
- * @param {boolean} [options.assumeYes=false] - Skip the confirmation prompt when confirmOverwrite is set
+ * @param {boolean} [options.showAfter=true] - Show the uploaded image after upload (vs. the clock)
+ * @param {number} [options.frameDuration] - Animation delay in ms (min 60)
  * @returns {Promise<boolean>} True if upload completed successfully
  */
-async function uploadImageToDevice(imagePath, imageIndex = 0, options = {}) {
-  const { showAfter = true, slot0Path, slot1Path, slot0Paths, slot1Paths, frameDuration, confirmOverwrite = false, assumeYes = false } = options;
-  const shownImage = showAfter ? imageIndex + 1 : 0;
+async function uploadImageToDevice(images, options = {}) {
+  const { showAfter = true, frameDuration } = options;
 
-  const paths0 = slot0Paths || (slot0Path ? [slot0Path] : null) || (imageIndex === 0 ? [imagePath] : null);
-  const paths1 = slot1Paths || (slot1Path ? [slot1Path] : null) || (imageIndex === 1 ? [imagePath] : null);
-
-  const slot0FrameCount = paths0 ? paths0.length : 1;
-  const slot1FrameCount = paths1 ? paths1.length : 1;
-  const totalFrames = slot0FrameCount + slot1FrameCount;
-
-  if (totalFrames > 36) {
-    throw new Error(`Too many frames: ${totalFrames} (slot0: ${slot0FrameCount}, slot1: ${slot1FrameCount}, max 36 total)`);
+  if (!Array.isArray(images) || images.length < 1 || images.length > 2) {
+    throw new Error("uploadImageToDevice expects an array of 1 or 2 images (each a path or an array of frame paths)");
   }
 
-  // The device firmware writes both slots' image data in a single contiguous
-  // flash write, and the protocol has no command to read back an existing
-  // slot's image — so uploading to only one slot unavoidably blanks the
-  // other slot's current image (no way to preserve it). This is a guaranteed
-  // side effect, not a risk, so it's always confirmed regardless of
-  // confirmOverwrite — assumeYes/--yes is required to skip it non-interactively.
-  const blanksOtherSlot = Boolean(paths0) !== Boolean(paths1);
+  const toPathList = (entry) => (Array.isArray(entry) ? entry : [entry]);
+  const paths0 = toPathList(images[0]);
+  const paths1 = images[1] !== undefined ? toPathList(images[1]) : null;
+
+  const image1FrameCount = paths0.length;
+  const image2FrameCount = paths1 ? paths1.length : 0;
+  const totalFrames = image1FrameCount + image2FrameCount;
+
+  if (totalFrames > 36) {
+    throw new Error(`Too many frames: ${totalFrames} (image1: ${image1FrameCount}, image2: ${image2FrameCount}, max 36 total)`);
+  }
+
+  const shownImage = showAfter ? 1 : 0;
 
   let device = openDevice();
 
   try {
-    if (blanksOtherSlot) {
-      const targetSlot = paths0 ? "slot 0" : "slot 1";
-      const blankedSlot = paths0 ? "slot 1" : "slot 0";
-      const confirmed = await confirmAction(
-        `Uploading only to ${targetSlot} will ERASE the current image in ${blankedSlot} ` +
-          `(the device firmware requires rewriting both slots together, and there is no way ` +
-          `to read back and preserve ${blankedSlot}'s current image). Continue?`,
-        { assumeYes }
-      );
-      if (!confirmed) {
-        console.log("Cancelled — upload not performed.");
-        return false;
-      }
-    } else if (confirmOverwrite) {
-      const targets = [paths0 ? "slot 0" : null, paths1 ? "slot 1" : null].filter(Boolean).join(" and ");
-      const confirmed = await confirmAction(`This will overwrite the current image in ${targets}. Continue?`, { assumeYes });
-      if (!confirmed) {
-        console.log("Cancelled — upload not performed.");
-        return false;
-      }
-    }
-
     console.log("Reading current configuration to preserve settings...");
     const configBuffer = await readConfigFromDevice(device);
     const currentConfig = parseConfigBuffer(configBuffer);
@@ -807,36 +787,28 @@ async function uploadImageToDevice(imagePath, imageIndex = 0, options = {}) {
       console.log(`  Drained ${stale.length} stale messages`);
     }
 
-    console.log("Building image data for both slots...");
-    const frameSize = ((DISPLAY_WIDTH * DISPLAY_HEIGHT * 2) + 0x7fff) & ~0x7fff;
-
-    const slot0Buffers = [];
-    if (paths0) {
-      for (const p of paths0) {
-        slot0Buffers.push(await buildRawImageData(p));
-      }
-    } else {
-      slot0Buffers.push(Buffer.alloc(frameSize, 0x00));
+    console.log("Building image data...");
+    const image1Buffers = [];
+    for (const p of paths0) {
+      image1Buffers.push(await buildRawImageData(p));
     }
 
-    const slot1Buffers = [];
+    const image2Buffers = [];
     if (paths1) {
       for (const p of paths1) {
-        slot1Buffers.push(await buildRawImageData(p));
+        image2Buffers.push(await buildRawImageData(p));
       }
-    } else {
-      slot1Buffers.push(Buffer.alloc(frameSize, 0x00));
     }
 
-    const concatenatedData = Buffer.concat([...slot0Buffers, ...slot1Buffers]);
-    console.log(`  Slot 0: ${slot0Buffers.length} frame(s) (${slot0Buffers.length * frameSize} bytes)`);
-    console.log(`  Slot 1: ${slot1Buffers.length} frame(s) (${slot1Buffers.length * frameSize} bytes)`);
-    console.log(`  Total: ${concatenatedData.length} bytes (${slot0Buffers.length + slot1Buffers.length} frames)`);
+    const concatenatedData = Buffer.concat([...image1Buffers, ...image2Buffers]);
+    console.log(`  Image 1: ${image1Buffers.length} frame(s)`);
+    console.log(`  Image 2: ${paths1 ? `${image2Buffers.length} frame(s)` : "not present"}`);
+    console.log(`  Total: ${concatenatedData.length} bytes (${image1Buffers.length + image2Buffers.length} frames)`);
 
     const configChanges = {
       showImage: shownImage,
-      image1Frames: paths0 ? slot0FrameCount : currentConfig.image1Frames,
-      image2Frames: paths1 ? slot1FrameCount : currentConfig.image2Frames,
+      image1Frames: image1FrameCount,
+      image2Frames: image2FrameCount,
       time: true,
     };
     if (frameDuration !== undefined) {
@@ -855,7 +827,7 @@ async function uploadImageToDevice(imagePath, imageIndex = 0, options = {}) {
     await sendWithPosition(device, 0x01, Buffer.alloc(0), 0);
 
     console.log("Uploading image data...");
-    await sendFrameData(device, concatenatedData, "both slots");
+    await sendFrameData(device, concatenatedData, "image data");
 
     const response = await sendWithPosition(device, 0x02, Buffer.alloc(0), 0);
     if (!response) console.warn("Upload COMMIT may not have been acknowledged");
@@ -999,7 +971,7 @@ async function configureLighting(changes, device = null) {
     console.log("Current settings:");
     console.log(`  Underglow: effect=${currentConfig.underglow.effect}, brightness=${currentConfig.underglow.brightness}`);
     console.log(`  LED: mode=${currentConfig.led.mode}, color=${currentConfig.led.color}`);
-    console.log(`  Images: slot0=${currentConfig.image1Frames}, slot1=${currentConfig.image2Frames}`);
+    console.log(`  Images: image1Frames=${currentConfig.image1Frames}, image2Frames=${currentConfig.image2Frames}`);
 
     console.log("\nApplying changes (preserving other settings)...");
     const newConfig = buildConfigBuffer(currentConfig, changes);

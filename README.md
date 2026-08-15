@@ -27,9 +27,13 @@ Not implemented, by design:
   keyboard in an undefined state.
 - `restoreFactoryDefaults` (erases the current config) prompts for
   interactive confirmation unless `--yes`/`--force` is passed.
-- `uploadImage`/`sendImageMagick.js` support an opt-in `--confirm` flag to
-  prompt before overwriting a slot's current image; off by default since the
-  target slot is always explicit in normal usage.
+- The device protocol has no opcode to read back an existing image, and
+  every upload overwrites the device's entire image memory in one
+  contiguous write. So every `gmk67s upload` call is a full replace: it
+  always defines the complete image content going forward (1 or 2 images),
+  with no way to preserve anything already on the device. This is expected,
+  ordinary behavior — not a destructive edge case — so there's no
+  confirmation prompt for it.
 
 ## Install
 
@@ -73,8 +77,9 @@ gmk67s timesync
 gmk67s lights --effect rainbow-cycle --brightness 5
 gmk67s preset gaming
 gmk67s preset --list
-gmk67s upload --file image.png --slot 0
-gmk67s upload --slot0 anim.gif --ms 100 --confirm
+gmk67s upload image.png                  # 1 image — uses the full 36-frame budget
+gmk67s upload cat.png dog.png            # 2 images — 36-frame budget split 18/18
+gmk67s upload anim.gif --ms 100          # animated GIF, 100ms per frame
 gmk67s restore-factory
 gmk67s restore-factory --yes   # skip the confirmation prompt
 gmk67s tui                     # interactive menu — device info, lights, presets, upload, timesync, restore
@@ -88,7 +93,8 @@ Or as a library:
 import gmk67s from "gmk67s";
 
 await gmk67s.setLighting({ underglow: { effect: 5, brightness: 7 } });
-await gmk67s.uploadImage("cat.png", 0, { slot0File: "cat.png" });
+await gmk67s.uploadImage("cat.png");
+await gmk67s.uploadImage(["cat.png", "dog.png"]);
 await gmk67s.syncTime();
 await gmk67s.restoreFactoryDefaults(null, { assumeYes: true });
 const config = await gmk67s.readConfig();

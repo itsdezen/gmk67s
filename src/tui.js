@@ -338,99 +338,80 @@ function FileBrowserScreen({ onSelect, onCancel }) {
 }
 
 function UploadScreen({ onBack }) {
-  const [filePath, setFilePath] = useState(null);
-  const [slot, setSlot] = useState(0);
-  const [confirming, setConfirming] = useState(false);
-  const [yesSelected, setYesSelected] = useState(false);
-  const [status, setStatus] = useState(null);
+  // Every upload rewrites the device's entire image memory from scratch —
+  // there's no "slot" to pick, just 1 or 2 images to upload right now.
+  const [stage, setStage] = useState("image1"); // image1 | askSecond | image2 | uploading | done | error
+  const [image1, setImage1] = useState(null);
+  const [image2, setImage2] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (stage !== "uploading") return;
+    uploadImage(image2 ? [image1, image2] : [image1], { showAfter: true })
+      .then(() => setStage("done"))
+      .catch((err) => {
+        setError(err.message);
+        setStage("error");
+      });
+  }, [stage]);
 
   useInput((input, key) => {
-    if (!filePath) return;
-    if (status === "uploading") return;
-    if (status) {
-      onBack();
-      return;
-    }
-
-    if (confirming) {
-      if (key.leftArrow || key.rightArrow) {
-        setYesSelected((y) => !y);
-        return;
-      }
-      if (key.escape) {
-        setConfirming(false);
-        return;
-      }
+    if (stage === "askSecond") {
       if (key.return) {
-        if (!yesSelected) {
-          setConfirming(false);
-          return;
-        }
-        setStatus("uploading");
-        // assumeYes: true — this screen IS the confirmation; uploadImageToDevice's
-        // own readline-based confirm can't run while Ink owns raw-mode stdin.
-        uploadImage(filePath, slot, { showAfter: true, assumeYes: true })
-          .then(() => setStatus("done"))
-          .catch((err) => setStatus(err.message));
+        setStage("image2");
+        return;
+      }
+      if (input === "s" || key.escape) {
+        setStage("uploading");
+        return;
       }
       return;
     }
-
-    if (key.escape) {
+    if (stage === "done" || stage === "error") {
       onBack();
-      return;
-    }
-    if (key.tab) {
-      setSlot((s) => (s === 0 ? 1 : 0));
-      return;
-    }
-    if (key.return) {
-      setYesSelected(false);
-      setConfirming(true);
     }
   });
 
-  if (!filePath) {
-    return h(FileBrowserScreen, { onSelect: setFilePath, onCancel: onBack });
+  if (stage === "image1") {
+    return h(FileBrowserScreen, {
+      onSelect: (p) => {
+        setImage1(p);
+        setStage("askSecond");
+      },
+      onCancel: onBack,
+    });
   }
 
-  if (confirming) {
-    const otherSlot = slot === 0 ? "slot 1" : "slot 0";
+  if (stage === "image2") {
+    return h(FileBrowserScreen, {
+      onSelect: (p) => {
+        setImage2(p);
+        setStage("uploading");
+      },
+      onCancel: () => setStage("askSecond"),
+    });
+  }
+
+  if (stage === "askSecond") {
     return h(
       Box,
       { flexDirection: "column" },
-      h(
-        Text,
-        { color: "yellow" },
-        `⚠ Uploading only to slot ${slot} will ERASE the current image in ${otherSlot} — ` +
-          `the device requires rewriting both slots together and there's no way to read back ` +
-          `and preserve ${otherSlot}'s current image.`
-      ),
+      h(Text, null, "Image 1: ", h(Text, { color: "cyan" }, image1)),
       h(Text, null, " "),
-      h(
-        Text,
-        null,
-        h(Text, { color: !yesSelected ? "cyan" : undefined }, !yesSelected ? "▸ No" : "  No"),
-        "   ",
-        h(Text, { color: yesSelected ? "cyan" : undefined }, yesSelected ? "▸ Yes" : "  Yes")
-      ),
-      h(Text, { dimColor: true }, "←/→ choose · Enter confirm · Esc back")
+      h(Text, null, "Add a second image? Uploading replaces everything currently on the device."),
+      h(Text, { dimColor: true }, "Enter: choose second image · s/Esc: upload with just this one")
     );
   }
 
   return h(
     Box,
     { flexDirection: "column" },
-    h(Text, null, "File: ", h(Text, { color: "cyan" }, filePath)),
-    h(Text, null, "Slot: ", h(Text, { color: "cyan" }, String(slot)), " (Tab to switch)"),
+    h(Text, null, "Image 1: ", h(Text, { color: "cyan" }, image1)),
+    image2 && h(Text, null, "Image 2: ", h(Text, { color: "cyan" }, image2)),
     h(Text, null, " "),
-    status === "uploading" && h(Text, null, "Uploading..."),
-    status === "done" && h(Text, { color: "green" }, "Upload complete. Press any key to go back."),
-    status &&
-      status !== "uploading" &&
-      status !== "done" &&
-      h(Text, { color: "red" }, `${status} Press any key to go back.`),
-    !status && h(Text, { dimColor: true }, "Tab: slot · Enter: continue · Esc: cancel")
+    stage === "uploading" && h(Text, null, "Uploading..."),
+    stage === "done" && h(Text, { color: "green" }, "Upload complete. Press any key to go back."),
+    stage === "error" && h(Text, { color: "red" }, `${error} Press any key to go back.`)
   );
 }
 

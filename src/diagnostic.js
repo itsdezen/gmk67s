@@ -205,7 +205,7 @@ async function runDiagnostics() {
 
     const now = new Date();
     console.log(`  Setting time: ${now.toLocaleString()}`);
-    console.log(`  Target slot:  0 (no display change)`);
+    console.log(`  Target display: 0 (no display change)`);
 
     success = await sendConfigFrame(device, 0, 1, 1);
     if (success) {
@@ -304,7 +304,7 @@ async function runDiagnostics() {
       console.log("✓ ALL TESTS PASSED!");
       console.log();
       console.log("Next steps:");
-      console.log("  1. Upload an image:  node src/sendImageMagick.js --file image.png --slot 0");
+      console.log("  1. Upload an image:  node src/sendImageMagick.js image.png");
       console.log("  2. Configure lights: node src/configureLights.js --effect rainbow-cycle");
       console.log("  3. Sync time:        node src/timesync.js");
     } else {

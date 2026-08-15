@@ -14,29 +14,25 @@ import { GifReader } from "omggif";
 import { uploadImageToDevice, DISPLAY_WIDTH, DISPLAY_HEIGHT } from "./lib/device.js";
 
 /**
- * Parses command-line arguments into a key-value object
- * Supports both --key=value and --key value formats
+ * Parses `<file1> [file2] [--ms <delay>]` style argv into positional file
+ * paths plus the --ms option.
  */
-function parseArgs(argv) {
-  const out = {};
+function parseUploadArgv(argv) {
+  const files = [];
+  let ms;
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
-    if (!a.startsWith("--")) continue;
-    const eq = a.indexOf("=");
-    if (eq !== -1) {
-      out[a.slice(2, eq)] = a.slice(eq + 1);
-      continue;
-    }
-    const key = a.slice(2);
-    const next = argv[i + 1];
-    if (next && !next.startsWith("--")) {
-      out[key] = next;
-      i++;
+    if (a === "--ms") {
+      ms = argv[++i];
+    } else if (a.startsWith("--ms=")) {
+      ms = a.slice(5);
+    } else if (a.startsWith("--")) {
+      throw new Error(`Unknown option: ${a}`);
     } else {
-      out[key] = true;
+      files.push(a);
     }
   }
-  return out;
+  return { files, ms };
 }
 
 /**
@@ -141,21 +137,23 @@ export async function extractFramesFromFile(inPath, outDir) {
 }
 
 /**
- * Processes an image file (static or GIF) and uploads it to the GMK67-S device
- * @param {string} imagePath - Path to the source image file
- * @param {number} [imageIndex=0] - Target slot on device (0 or 1)
+ * Processes 1 or 2 image files (static or GIF) and uploads them to the
+ * GMK67-S device. Every upload rewrites the device's entire image memory:
+ * one file uses the full 36-frame budget, two files split it 18/18 (with
+ * leftover frames from a shorter file going to the other).
+ * @param {string|string[]} files - 1 or 2 source image file paths
  * @param {Object} [options={}] - Upload options
  * @returns {Promise<void>}
  */
-export async function processAndSend(
-  imagePath,
-  imageIndex = 0,
-  { showAfter = true, slot0File, slot1File, frameDuration, confirmOverwrite = false, assumeYes = false } = {}
-) {
+export async function processAndSend(files, { showAfter = true, frameDuration } = {}) {
+  if (!Array.isArray(files)) files = [files];
+  if (files.length < 1 || files.length > 2) {
+    throw new Error("processAndSend expects 1 or 2 file paths");
+  }
+
   const tmpDirs = [];
 
   async function extractFrames(inputPath) {
-    if (!inputPath) return null;
     if (!fs.existsSync(inputPath))
       throw new Error(`Input file not found: ${inputPath}`);
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gmk67s-frames-"));
@@ -167,44 +165,42 @@ export async function processAndSend(
   }
 
   try {
-    const src0 = slot0File || (imageIndex === 0 ? imagePath : null);
-    const src1 = slot1File || (imageIndex === 1 ? imagePath : null);
-    let frames0 = await extractFrames(src0);
-    let frames1 = await extractFrames(src1);
-
     // Auto-truncate if total frames exceed the assumed flash-storage limit
     // (unverified for this device — see SPEC.md)
     const MAX_TOTAL_FRAMES = 36;
-    const count0 = frames0 ? frames0.length : 1;
-    const count1 = frames1 ? frames1.length : 1;
-    if (count0 + count1 > MAX_TOTAL_FRAMES) {
-      const half = Math.floor(MAX_TOTAL_FRAMES / 2);
-      const target0 = frames0 ? Math.min(frames0.length, half) : 1;
-      const target1 = frames1 ? Math.min(frames1.length, MAX_TOTAL_FRAMES - target0) : 1;
-      if (frames0 && frames0.length > target0) {
-        console.log(`  Truncating slot 0 from ${frames0.length} to ${target0} frames (36-frame hardware limit)`);
-        frames0 = frames0.slice(0, target0);
+
+    let frames0 = await extractFrames(files[0]);
+    let frames1 = files[1] !== undefined ? await extractFrames(files[1]) : null;
+
+    if (frames1) {
+      if (frames0.length + frames1.length > MAX_TOTAL_FRAMES) {
+        const half = Math.floor(MAX_TOTAL_FRAMES / 2);
+        const target0 = Math.min(frames0.length, half);
+        const target1 = Math.min(frames1.length, MAX_TOTAL_FRAMES - target0);
+        if (frames0.length > target0) {
+          console.log(`  Truncating image 1 from ${frames0.length} to ${target0} frames (36-frame hardware limit)`);
+          frames0 = frames0.slice(0, target0);
+        }
+        if (frames1.length > target1) {
+          console.log(`  Truncating image 2 from ${frames1.length} to ${target1} frames (36-frame hardware limit)`);
+          frames1 = frames1.slice(0, target1);
+        }
       }
-      if (frames1 && frames1.length > target1) {
-        console.log(`  Truncating slot 1 from ${frames1.length} to ${target1} frames (36-frame hardware limit)`);
-        frames1 = frames1.slice(0, target1);
-      }
+    } else if (frames0.length > MAX_TOTAL_FRAMES) {
+      console.log(`  Truncating image from ${frames0.length} to ${MAX_TOTAL_FRAMES} frames (36-frame hardware limit)`);
+      frames0 = frames0.slice(0, MAX_TOTAL_FRAMES);
     }
 
-    const totalFrames = (frames0 ? frames0.length : 0) + (frames1 ? frames1.length : 0);
+    const totalFrames = frames0.length + (frames1 ? frames1.length : 0);
     const isAnimated = totalFrames > 2;
     if (frameDuration === undefined && isAnimated) {
       frameDuration = 100;
       console.log(`  Using default animation delay: ${frameDuration}ms`);
     }
 
-    await uploadImageToDevice(imagePath, imageIndex, {
+    await uploadImageToDevice(frames1 ? [frames0, frames1] : [frames0], {
       showAfter,
-      slot0Paths: frames0,
-      slot1Paths: frames1,
       frameDuration,
-      confirmOverwrite,
-      assumeYes,
     });
   } finally {
     for (const dir of tmpDirs) {
@@ -219,62 +215,45 @@ export async function processAndSend(
 
 /**
  * Usage:
- *   node sendImageMagick.js --slot0 <path> --slot1 <path> [--ms <delay>] [--show <0|1|2>] [--confirm] [--yes]
- *   node sendImageMagick.js --file <path> --slot <0|1> [--ms <delay>] [--show=true|false] [--confirm] [--yes]
+ *   node sendImageMagick.js <file1> [file2] [--ms <delay>]
  *
- * --confirm         Prompt before overwriting the target slot(s) (off by default — slot is
- *                    always explicit in normal CLI usage, so there's nothing ambiguous to confirm)
- * --yes / --force    Skip the --confirm prompt (for scripting)
+ * One file uses the full 36-frame budget. Two files split it 18/18. Every
+ * upload rewrites the device's entire image memory — there is no "slot"
+ * concept and no way to preserve an image not passed in this call.
  */
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const args = parseArgs(process.argv);
+  const usage =
+    "Usage:\n" +
+    "  node src/sendImageMagick.js <file1> [file2] [--ms <delay>]\n" +
+    "\n" +
+    "Options:\n" +
+    "  --ms <number>  Animation delay in milliseconds (min 60, default 100 for GIFs)";
 
-  const frameDuration = args.ms !== undefined ? Math.max(60, Number(args.ms)) : undefined;
-  if (args.ms !== undefined && Number.isNaN(Number(args.ms))) {
-    console.error("--ms must be a number (milliseconds between frames, min 60)");
+  let files, msRaw;
+  try {
+    ({ files, ms: msRaw } = parseUploadArgv(process.argv));
+  } catch (err) {
+    console.error(err.message);
+    console.error(usage);
     process.exit(1);
   }
 
-  const confirmOverwrite = Boolean(args.confirm);
-  const assumeYes = Boolean(args.yes || args.force);
+  if (files.length < 1 || files.length > 2) {
+    console.error(usage);
+    process.exit(1);
+  }
 
-  if (args.slot0 || args.slot1) {
-    const show = Number(args.show ?? (args.slot1 ? 2 : 1));
-
-    processAndSend(args.slot0 || args.slot1, args.slot0 ? 0 : 1, {
-      showAfter: show > 0,
-      slot0File: args.slot0,
-      slot1File: args.slot1,
-      frameDuration,
-      confirmOverwrite,
-      assumeYes,
-    }).catch((err) => {
-      console.error(err);
-      process.exit(1);
-    });
-  } else {
-    const file = args.file || args.f;
-    const slot = Number(args.slot ?? 0);
-    const show =
-      args.show === undefined ? true : String(args.show).toLowerCase() !== "false";
-
-    if (!file || Number.isNaN(slot) || slot < 0 || slot > 1) {
-      console.error(
-        "Usage:\n" +
-        "  node src/sendImageMagick.js --slot0 <path> --slot1 <path> [--ms <delay>] [--confirm] [--yes]\n" +
-        "  node src/sendImageMagick.js --file <path> --slot <0|1> [--ms <delay>] [--confirm] [--yes]\n" +
-        "\n" +
-        "Options:\n" +
-        "  --ms <number>  Animation delay in milliseconds (min 60, default 100 for GIFs)\n" +
-        "  --confirm      Prompt before overwriting the target slot(s)\n" +
-        "  --yes, --force Skip the --confirm prompt"
-      );
+  let frameDuration;
+  if (msRaw !== undefined) {
+    if (Number.isNaN(Number(msRaw))) {
+      console.error("--ms must be a number (milliseconds between frames, min 60)");
       process.exit(1);
     }
-
-    processAndSend(file, slot, { showAfter: show, frameDuration, confirmOverwrite, assumeYes }).catch((err) => {
-      console.error(err);
-      process.exit(1);
-    });
+    frameDuration = Math.max(60, Number(msRaw));
   }
+
+  processAndSend(files, { frameDuration }).catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }

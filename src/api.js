@@ -4,8 +4,9 @@
  * @example
  *   import gmk67s from "./src/api.js";
  *
- *   await gmk67s.uploadImage("cat.png", 0, { slot0File: "cat.png", slot1File: "dog.jpg" });
- *   await gmk67s.uploadImage("anim.gif", 0, { slot0File: "anim.gif", frameDuration: 100 });
+ *   await gmk67s.uploadImage("cat.png");
+ *   await gmk67s.uploadImage(["cat.png", "dog.jpg"]);
+ *   await gmk67s.uploadImage("anim.gif", { frameDuration: 100 });
  *   await gmk67s.setLighting({ underglow: { effect: 5, brightness: 7, hue: { red: 255, green: 0, blue: 128 } } });
  *   await gmk67s.setLighting({ led: { mode: 3, color: 5 } });
  *   await gmk67s.showSlot(2);
@@ -30,17 +31,16 @@ import {
 import { processAndSend } from "./sendImageMagick.js";
 
 /**
- * Upload images (supports GIFs) with automatic resize + frame extraction
- * @param {string} imagePath - Path to the image file
- * @param {number} [slot=0] - Target slot (0 or 1)
+ * Upload 1 or 2 images (supports GIFs) with automatic resize + frame
+ * extraction. Every call rewrites the device's entire image memory from
+ * scratch: one file uses the full 36-frame budget, two files split it 18/18.
+ * @param {string|string[]} files - 1 or 2 source image file paths
  * @param {Object} [options] - Upload options
- * @param {string} [options.slot0File] - Path for slot 0 image
- * @param {string} [options.slot1File] - Path for slot 1 image
  * @param {number} [options.frameDuration] - Animation delay in ms (min 60, default 100 for GIFs)
- * @param {boolean} [options.showAfter=true] - Display the image after upload
+ * @param {boolean} [options.showAfter=true] - Display the image after upload (vs. the clock)
  */
-async function uploadImage(imagePath, slot = 0, options = {}) {
-  return processAndSend(imagePath, slot, options);
+async function uploadImage(files, options = {}) {
+  return processAndSend(files, options);
 }
 
 /**

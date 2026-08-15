@@ -26,7 +26,7 @@ See `findVerifiedDeviceInfo()` in `src/lib/device.js`.
 | Pixel format | RGB565 (16-bit: 5 bits R, 6 bits G, 5 bits B), big-endian per pixel |
 | Raw frame size | 128 × 128 × 2 = 32768 bytes |
 | Padded frame size | 32768 bytes (already a 32KB multiple, so the padding formula `(rawSize + 0x7fff) & ~0x7fff` is a no-op at this resolution) |
-| Slots | 2 independent image slots (0 and 1), each holding 1+ frames for animation |
+| Images | Up to 2 images per upload (image1, image2), each 1+ frames for animation — see "Limits" below for how the frame budget is shared between them |
 
 ## 64-byte HID report structure
 
@@ -84,8 +84,8 @@ for matching.
 | 30 | reserved | — | |
 | 31 | led.rainbow | uint8 | 0=hue mode, 1=rainbow mode |
 | 32 | led.color | uint8 | see LED colors enum |
-| 33 | showImage | uint8 | 0=show time, 1=show slot 0, 2=show slot 1 |
-| 34 | image1Frames | uint8 | frame count in slot 0 |
+| 33 | showImage | uint8 | 0=show time, 1=show image1, 2=show image2 |
+| 34 | image1Frames | uint8 | frame count for image1 |
 | 35 | time.second | BCD | |
 | 36 | time.minute | BCD | |
 | 37 | time.hour | BCD | 24h |
@@ -96,7 +96,7 @@ for matching.
 | 42 | reserved | — | |
 | 43-44 | frameDuration | uint16 LE | animation delay, ms |
 | 45 | reserved | — | |
-| 46 | image2Frames | uint8 | frame count in slot 1 |
+| 46 | image2Frames | uint8 | frame count for image2 (0 = no image2) |
 | 47 | reserved | — | |
 
 BCD (Binary-Coded Decimal): a byte encoding a 2-digit decimal number as
@@ -159,8 +159,24 @@ BCD (Binary-Coded Decimal): a byte encoding a 2-digit decimal number as
 | Payload per report | 56 bytes | bytes 8-63 of the 64-byte report |
 | Frame data chunk size | 56 bytes | image data is split into 56-byte `FRAME_DATA` packets |
 | Padded frame size | 65536 bytes | per image frame, after 32KB-boundary rounding |
-| Max total frames (both slots combined) | 36 | assumed flash-storage limit; not verified on this device |
+| Max total frames (image1 + image2 combined) | 36 | assumed flash-storage limit; not verified on this device |
 | Config buffer size | 48 bytes | |
+
+The protocol has no opcode to read back an existing image, and every upload
+overwrites the device's entire image memory in one contiguous write starting
+at position 0 — there is no way to preserve an image that isn't part of the
+current upload call. `image1Frames`/`image2Frames` describe the two frame
+counts within that single write, not independently addressable "slots":
+
+- **Uploading 1 image**: it gets the entire 36-frame budget (frames are
+  truncated to 36 if the source has more). `image2Frames = 0` — this means
+  there is no second image at all, not an empty/reserved one. No bytes are
+  sent for a second image; nothing is padded or blanked in its place.
+- **Uploading 2 images**: the 36-frame budget is split — image 1 gets up to
+  18 frames, image 2 gets whatever remains of 36 after image 1's actual
+  frame count is subtracted (so a short image 1 leaves more of the budget
+  for image 2, and vice versa). `showImage = 1` by default (image 1 shown
+  first after upload).
 
 ## Protocol sequences
 
@@ -196,8 +212,10 @@ config write path rolls back by re-writing the previously-read config buffer.
 READY(0x23)
 INIT(0x01)
 FRAME_DATA(0x21, ≤56 bytes, pos=N)  × (total bytes / 56), where pos is the
-  cumulative byte offset into the concatenated [slot0 frames..., slot1 frames...]
-  buffer (each frame padded to 65536 bytes)
+  cumulative byte offset into the concatenated [image1 frames..., image2 frames...]
+  buffer (each frame padded to 65536 bytes). This single write covers the
+  device's entire image memory — if image2 is absent, no bytes are sent for
+  it at all (no blank/placeholder frame).
 COMMIT(0x02)
 ```
 
@@ -217,7 +235,7 @@ values below are only meaningful for the non-time fields.
 Decoded: underglow effect=`0x06` (FULL_ONE_COLOR), brightness=9, speed=4,
 orientation=1, rainbow=0, RGB=(255,1,0); winlock=0; led mode=`0x03`
 (FIXED_COLOR), saturation=7, rainbow=0, color=`0x03` (GREEN); showImage=2
-(slot 1); image1Frames=1; frameDuration=100ms (`0x64`); image2Frames=1.
+(image2); image1Frames=1; frameDuration=100ms (`0x64`); image2Frames=1.
 
 ## Unverified
 
