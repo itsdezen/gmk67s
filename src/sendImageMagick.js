@@ -40,6 +40,16 @@ function parseArgs(argv) {
 }
 
 /**
+ * Resizes an image to exactly DISPLAY_WIDTH x DISPLAY_HEIGHT, preserving the
+ * source aspect ratio (scale so the shorter side fills the target) and
+ * center-cropping the overflow on the longer side, instead of squashing.
+ * @param {import("jimp").JimpInstance} img
+ */
+function resizeCoverDisplay(img) {
+  img.cover({ w: DISPLAY_WIDTH, h: DISPLAY_HEIGHT });
+}
+
+/**
  * Extracts all frames from a GIF using omggif with proper frame compositing.
  * Handles disposal methods (keep, restore to background, restore to previous)
  * so each output frame is a fully rendered image — equivalent to ImageMagick's -coalesce.
@@ -85,7 +95,7 @@ async function extractGifFrames(inPath, outDir) {
     // Jimp v1: construct directly from a Bitmap-shaped buffer instead of the
     // old `new Jimp(width, height)` + `img.bitmap.data = ...` two-step.
     const img = new Jimp({ data: Buffer.from(canvas), width, height });
-    img.resize({ w: DISPLAY_WIDTH, h: DISPLAY_HEIGHT });
+    resizeCoverDisplay(img);
     const outPath = path.join(outDir, `frame_${String(i).padStart(4, "0")}.png`);
     await img.write(outPath);
     framePaths.push(outPath);
@@ -124,7 +134,7 @@ async function extractFramesFromFile(inPath, outDir) {
   }
 
   const img = await Jimp.read(inPath);
-  img.resize({ w: DISPLAY_WIDTH, h: DISPLAY_HEIGHT });
+  resizeCoverDisplay(img);
   const outPath = path.join(outDir, "frame_0000.png");
   await img.write(outPath);
   return [outPath];

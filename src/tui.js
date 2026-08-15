@@ -10,6 +10,9 @@
  * written with React.createElement directly.
  */
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import React, { useState, useEffect } from "react";
 import { render, Box, Text, useInput, useApp } from "ink";
 import {
@@ -236,12 +239,111 @@ function PresetScreen({ onBack }) {
   );
 }
 
+const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".bmp", ".gif"];
+const FILE_BROWSER_MAX_VISIBLE = 15;
+
+function isImageFile(name) {
+  return IMAGE_EXTENSIONS.includes(path.extname(name).toLowerCase());
+}
+
+function readDirEntries(dir) {
+  const raw = fs.readdirSync(dir, { withFileTypes: true });
+  const dirs = [];
+  const files = [];
+  for (const entry of raw) {
+    if (entry.name.startsWith(".")) continue;
+    if (entry.isDirectory()) dirs.push({ name: entry.name, isDir: true });
+    else if (isImageFile(entry.name)) files.push({ name: entry.name, isDir: false });
+  }
+  dirs.sort((a, b) => a.name.localeCompare(b.name));
+  files.sort((a, b) => a.name.localeCompare(b.name));
+  const isRoot = path.dirname(dir) === dir;
+  const parentEntry = isRoot ? [] : [{ name: "..", isDir: true, isParent: true }];
+  return parentEntry.concat(dirs, files);
+}
+
+function FileBrowserScreen({ onSelect, onCancel }) {
+  const [currentDir, setCurrentDir] = useState(os.homedir());
+  const [index, setIndex] = useState(0);
+  const [entries, setEntries] = useState([]);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    try {
+      setEntries(readDirEntries(currentDir));
+      setError(null);
+    } catch (err) {
+      setEntries([{ name: "..", isDir: true, isParent: true }]);
+      setError(err.message);
+    }
+    setIndex(0);
+  }, [currentDir]);
+
+  useInput((input, key) => {
+    if (key.escape) {
+      onCancel();
+      return;
+    }
+    if (key.upArrow) {
+      setIndex((i) => (entries.length ? (i - 1 + entries.length) % entries.length : 0));
+      return;
+    }
+    if (key.downArrow) {
+      setIndex((i) => (entries.length ? (i + 1) % entries.length : 0));
+      return;
+    }
+    if (input === "~" || input === "h") {
+      setCurrentDir(os.homedir());
+      return;
+    }
+    if (key.leftArrow || key.backspace) {
+      setCurrentDir((d) => path.dirname(d));
+      return;
+    }
+    if (key.return) {
+      const entry = entries[index];
+      if (!entry) return;
+      if (entry.isDir) {
+        setCurrentDir(entry.isParent ? path.dirname(currentDir) : path.join(currentDir, entry.name));
+      } else {
+        onSelect(path.join(currentDir, entry.name));
+      }
+    }
+  });
+
+  const start = Math.max(
+    0,
+    Math.min(index - Math.floor(FILE_BROWSER_MAX_VISIBLE / 2), Math.max(0, entries.length - FILE_BROWSER_MAX_VISIBLE))
+  );
+  const visible = entries.slice(start, start + FILE_BROWSER_MAX_VISIBLE);
+
+  return h(
+    Box,
+    { flexDirection: "column" },
+    h(Text, { color: "cyan" }, currentDir),
+    error && h(Text, { color: "red" }, `Cannot read directory: ${error}`),
+    entries.length === 0 && !error && h(Text, { dimColor: true }, "(no images or subdirectories)"),
+    visible.map((entry, i) => {
+      const realIndex = start + i;
+      const label = entry.isDir ? `${entry.name}/` : entry.name;
+      return h(
+        Text,
+        { key: `${realIndex}-${entry.name}`, color: realIndex === index ? "cyan" : undefined },
+        (realIndex === index ? "▸ " : "  ") + label
+      );
+    }),
+    h(Text, null, " "),
+    h(Text, { dimColor: true }, "↑/↓ navigate · Enter open/select · ←/Backspace up dir · ~ home · Esc back")
+  );
+}
+
 function UploadScreen({ onBack }) {
-  const [filePath, setFilePath] = useState("");
+  const [filePath, setFilePath] = useState(null);
   const [slot, setSlot] = useState(0);
   const [status, setStatus] = useState(null);
 
   useInput((input, key) => {
+    if (!filePath) return;
     if (status === "uploading") return;
     if (status) {
       onBack();
@@ -256,27 +358,22 @@ function UploadScreen({ onBack }) {
       return;
     }
     if (key.return) {
-      if (!filePath.trim()) return;
       setStatus("uploading");
-      uploadImage(filePath.trim(), slot, { showAfter: true })
+      uploadImage(filePath, slot, { showAfter: true })
         .then(() => setStatus("done"))
         .catch((err) => setStatus(err.message));
-      return;
-    }
-    if (key.backspace || key.delete) {
-      setFilePath((s) => s.slice(0, -1));
-      return;
-    }
-    if (input && !key.ctrl && !key.meta) {
-      setFilePath((s) => s + input);
     }
   });
+
+  if (!filePath) {
+    return h(FileBrowserScreen, { onSelect: setFilePath, onCancel: onBack });
+  }
 
   return h(
     Box,
     { flexDirection: "column" },
+    h(Text, null, "File: ", h(Text, { color: "cyan" }, filePath)),
     h(Text, null, "Slot: ", h(Text, { color: "cyan" }, String(slot)), " (Tab to switch)"),
-    h(Text, null, `File path: ${filePath}`, h(Text, { color: "gray" }, "▏")),
     h(Text, null, " "),
     status === "uploading" && h(Text, null, "Uploading..."),
     status === "done" && h(Text, { color: "green" }, "Upload complete. Press any key to go back."),
@@ -284,7 +381,7 @@ function UploadScreen({ onBack }) {
       status !== "uploading" &&
       status !== "done" &&
       h(Text, { color: "red" }, `${status} Press any key to go back.`),
-    !status && h(Text, { dimColor: true }, "Type path · Tab: slot · Enter: upload · Esc: cancel")
+    !status && h(Text, { dimColor: true }, "Tab: slot · Enter: upload · Esc: cancel")
   );
 }
 
