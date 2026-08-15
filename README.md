@@ -46,30 +46,41 @@ sudo cp 50-gmk67s.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-## CLI commands
+## CLI
 
-| Command | Script | Description |
-|---|---|---|
-| `gmk67s-diagnostic` | `src/diagnostic.js` | Protocol handshake tests + read-only config dump |
-| `gmk67s-timesync` | `src/timesync.js` | Sync system time to the keyboard's RTC |
-| `gmk67s-lights` | `src/configureLights.js` | Configure underglow/LED via flags |
-| `gmk67s-preset` | `src/loadPreset.js` | Apply a named preset from `presets.json` |
-| `gmk67s-upload` | `src/sendImageMagick.js` | Upload a static image or GIF to the LCD |
-| `gmk67s-restore-factory` | `src/restoreFactory.js` | Restore the FACTORY_CONFIG baseline (prompts for confirmation) |
-
-Examples:
+A single `gmk67s` binary dispatches to subcommands:
 
 ```bash
-node src/diagnostic.js
-node src/timesync.js
-node src/configureLights.js --effect rainbow-cycle --brightness 5
-node src/loadPreset.js gaming
-node src/loadPreset.js --list
-node src/sendImageMagick.js --file image.png --slot 0
-node src/sendImageMagick.js --slot0 anim.gif --ms 100 --confirm
-node src/restoreFactory.js
-node src/restoreFactory.js --yes   # skip the confirmation prompt
+gmk67s <subcommand> [options]
+gmk67s --help
 ```
+
+| Subcommand | Underlying script | Description |
+|---|---|---|
+| `diagnostic` | `src/diagnostic.js` | Protocol handshake tests + read-only config dump |
+| `timesync` | `src/timesync.js` | Sync system time to the keyboard's RTC |
+| `lights` | `src/configureLights.js` | Configure underglow/LED via flags |
+| `preset` | `src/loadPreset.js` | Apply a named preset from `presets.json` |
+| `upload` | `src/sendImageMagick.js` | Upload a static image or GIF to the LCD |
+| `restore-factory` | `src/restoreFactory.js` | Restore the FACTORY_CONFIG baseline (prompts for confirmation) |
+| `tui` | `src/tui.js` | Interactive terminal UI (menu-driven, same underlying API) |
+
+Examples (via the dispatcher, or by running each script directly with `node`):
+
+```bash
+gmk67s diagnostic
+gmk67s timesync
+gmk67s lights --effect rainbow-cycle --brightness 5
+gmk67s preset gaming
+gmk67s preset --list
+gmk67s upload --file image.png --slot 0
+gmk67s upload --slot0 anim.gif --ms 100 --confirm
+gmk67s restore-factory
+gmk67s restore-factory --yes   # skip the confirmation prompt
+gmk67s tui                     # interactive menu — device info, lights, presets, upload, timesync, restore
+```
+
+Every subcommand also works as `node src/<script>.js [options]` directly.
 
 Or as a library:
 
