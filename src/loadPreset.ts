@@ -7,7 +7,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { configureLighting } from "./lib/device.js";
+import { configureLighting, isQuiet } from "./lib/device.js";
 import type { ConfigChanges } from "./lib/device.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,8 +62,10 @@ async function applyPreset(presetName: string, presetsPath?: string): Promise<bo
     );
   }
 
-  console.log(`\n🎨 Applying preset: ${presetName}`);
-  console.log(`   ${preset.description}\n`);
+  if (!isQuiet()) {
+    console.log(`\n🎨 Applying preset: ${presetName}`);
+    console.log(`   ${preset.description}\n`);
+  }
 
   return await configureLighting(preset.config);
 }

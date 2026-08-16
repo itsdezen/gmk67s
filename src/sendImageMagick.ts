@@ -12,11 +12,12 @@ import fs from "fs";
 import { Jimp } from "jimp";
 import type { JimpInstance } from "jimp";
 import { GifReader } from "omggif";
-import { uploadImageToDevice, DISPLAY_WIDTH, DISPLAY_HEIGHT } from "./lib/device.js";
+import { uploadImageToDevice, isQuiet, DISPLAY_WIDTH, DISPLAY_HEIGHT } from "./lib/device.js";
 
 interface UploadOptions {
   showAfter?: boolean;
   frameDuration?: number;
+  onProgress?: (percent: number, sentBytes: number, totalBytes: number) => void;
 }
 
 /**
@@ -151,7 +152,7 @@ export async function extractFramesFromFile(inPath: string, outDir: string): Pro
  */
 export async function processAndSend(
   files: string | string[],
-  { showAfter = true, frameDuration }: UploadOptions = {}
+  { showAfter = true, frameDuration, onProgress }: UploadOptions = {}
 ): Promise<void> {
   const fileList = Array.isArray(files) ? files : [files];
   if (fileList.length < 1 || fileList.length > 2) {
@@ -165,9 +166,9 @@ export async function processAndSend(
       throw new Error(`Input file not found: ${inputPath}`);
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gmk67s-frames-"));
     tmpDirs.push(tmpDir);
-    console.log(`Processing ${path.basename(inputPath)}...`);
+    if (!isQuiet()) console.log(`Processing ${path.basename(inputPath)}...`);
     const framePaths = await extractFramesFromFile(inputPath, tmpDir);
-    console.log(`  ${framePaths.length} frame(s) extracted`);
+    if (!isQuiet()) console.log(`  ${framePaths.length} frame(s) extracted`);
     return framePaths;
   }
 
@@ -185,16 +186,16 @@ export async function processAndSend(
         const target0 = Math.min(frames0.length, half);
         const target1 = Math.min(frames1.length, MAX_TOTAL_FRAMES - target0);
         if (frames0.length > target0) {
-          console.log(`  Truncating image 1 from ${frames0.length} to ${target0} frames (${MAX_TOTAL_FRAMES}-frame hardware limit)`);
+          if (!isQuiet()) console.log(`  Truncating image 1 from ${frames0.length} to ${target0} frames (${MAX_TOTAL_FRAMES}-frame hardware limit)`);
           frames0 = frames0.slice(0, target0);
         }
         if (frames1.length > target1) {
-          console.log(`  Truncating image 2 from ${frames1.length} to ${target1} frames (${MAX_TOTAL_FRAMES}-frame hardware limit)`);
+          if (!isQuiet()) console.log(`  Truncating image 2 from ${frames1.length} to ${target1} frames (${MAX_TOTAL_FRAMES}-frame hardware limit)`);
           frames1 = frames1.slice(0, target1);
         }
       }
     } else if (frames0.length > MAX_TOTAL_FRAMES) {
-      console.log(`  Truncating image from ${frames0.length} to ${MAX_TOTAL_FRAMES} frames (${MAX_TOTAL_FRAMES}-frame hardware limit)`);
+      if (!isQuiet()) console.log(`  Truncating image from ${frames0.length} to ${MAX_TOTAL_FRAMES} frames (${MAX_TOTAL_FRAMES}-frame hardware limit)`);
       frames0 = frames0.slice(0, MAX_TOTAL_FRAMES);
     }
 
@@ -202,12 +203,13 @@ export async function processAndSend(
     const isAnimated = totalFrames > 2;
     if (frameDuration === undefined && isAnimated) {
       frameDuration = 100;
-      console.log(`  Using default animation delay: ${frameDuration}ms`);
+      if (!isQuiet()) console.log(`  Using default animation delay: ${frameDuration}ms`);
     }
 
     await uploadImageToDevice(frames1 ? [frames0, frames1] : [frames0], {
       showAfter,
       frameDuration,
+      onProgress,
     });
   } finally {
     for (const dir of tmpDirs) {

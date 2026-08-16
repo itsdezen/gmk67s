@@ -41,6 +41,16 @@ function setDebug(enabled: boolean): void {
   DEBUG = !!enabled;
 }
 
+/**
+ * True when running inside the TUI's fullscreen alt-buffer, where raw
+ * console writes would corrupt the rendered frame. Read at call time (not
+ * module-eval time) since tui.tsx sets this env var after device.ts has
+ * already been imported.
+ */
+function isQuiet(): boolean {
+  return process.env.GMK67S_TUI === "1";
+}
+
 // -------------------------------------------------------
 // Common Utilities
 // -------------------------------------------------------
@@ -144,6 +154,7 @@ interface ParsedConfig {
 interface UploadOptions {
   showAfter?: boolean;
   frameDuration?: number;
+  onProgress?: (percent: number, sentBytes: number, totalBytes: number) => void;
 }
 
 interface KeyboardInfo {
@@ -437,7 +448,7 @@ async function sendWithPosition(
     if (DEBUG) console.log(`  [DEBUG sendWithPosition] Discarding non-matching response (cmd: 0x${response[3].toString(16)}), continuing...`);
   }
 
-  console.warn(`  ⚠ Timeout waiting for response to command 0x${commandId.toString(16).padStart(2, "0")}`);
+  if (!isQuiet()) console.warn(`  ⚠ Timeout waiting for response to command 0x${commandId.toString(16).padStart(2, "0")}`);
   return null;
 }
 
@@ -447,7 +458,7 @@ async function sendWithPosition(
  * @returns 48-byte configuration buffer
  */
 async function readConfigFromDevice(device: HidDevice): Promise<Buffer> {
-  console.log("Reading configuration...");
+  if (!isQuiet()) console.log("Reading configuration...");
 
   await sendWithPosition(device, 0x01, Buffer.alloc(0), 0);
 
@@ -467,11 +478,11 @@ async function readConfigFromDevice(device: HidDevice): Promise<Buffer> {
     if (chunk && chunk.length >= 4) {
       chunk.slice(0, 4).copy(configBuffer, position);
     } else {
-      console.warn(`Failed to read config chunk ${i} at position ${position}`);
+      if (!isQuiet()) console.warn(`Failed to read config chunk ${i} at position ${position}`);
     }
   }
 
-  console.log(`✓ Configuration read (48 bytes): ${configBuffer.toString('hex')}`);
+  if (!isQuiet()) console.log(`✓ Configuration read (48 bytes): ${configBuffer.toString('hex')}`);
   return configBuffer;
 }
 
@@ -581,19 +592,23 @@ function buildConfigBuffer(existingConfig: ParsedConfig, changes: ConfigChanges)
  * @returns True only if every step of the write was acknowledged
  */
 async function writeConfigToDevice(device: HidDevice, configBuffer: Buffer): Promise<boolean> {
-  console.log("Writing configuration...");
-  console.log(`  Writing 48 bytes: ...${configBuffer.slice(33, 47).toString('hex')}...`);
-  console.log(`  Byte 33 (showImage): ${configBuffer[33]}, Byte 34 (image1Frames): ${configBuffer[34]}, Byte 46 (image2Frames): ${configBuffer[46]}`);
+  if (!isQuiet()) {
+    console.log("Writing configuration...");
+    console.log(`  Writing 48 bytes: ...${configBuffer.slice(33, 47).toString('hex')}...`);
+    console.log(`  Byte 33 (showImage): ${configBuffer[33]}, Byte 34 (image1Frames): ${configBuffer[34]}, Byte 46 (image2Frames): ${configBuffer[46]}`);
+  }
 
   const initOk = await sendWithPosition(device, 0x01, Buffer.alloc(0), 0);
   const writeOk = await sendWithPosition(device, 0x06, configBuffer, 0);
   const commitOk = await sendWithPosition(device, 0x02, Buffer.alloc(0), 0);
 
   const success = initOk !== null && writeOk !== null && commitOk !== null;
-  if (success) {
-    console.log("✓ Configuration written successfully");
-  } else {
-    console.warn("✗ Configuration write did not complete (missing ACK on one or more steps)");
+  if (!isQuiet()) {
+    if (success) {
+      console.log("✓ Configuration written successfully");
+    } else {
+      console.warn("✗ Configuration write did not complete (missing ACK on one or more steps)");
+    }
   }
   return success;
 }
@@ -615,13 +630,15 @@ async function writeConfigWithRollback(
   const success = await writeConfigToDevice(device, newConfigBuffer);
   if (success) return true;
 
-  console.warn("Write failed — attempting rollback to previous config...");
+  if (!isQuiet()) console.warn("Write failed — attempting rollback to previous config...");
   const rollbackOk = await writeConfigToDevice(device, previousConfigBuffer);
-  if (rollbackOk) {
-    console.warn("✓ Rollback succeeded (keyboard restored to prior state)");
-  } else {
-    console.error("WARNING: Rollback also failed. Keyboard may be in a bad state.");
-    console.error("         Replug the keyboard and run restoreFactoryDefaults() to recover.");
+  if (!isQuiet()) {
+    if (rollbackOk) {
+      console.warn("✓ Rollback succeeded (keyboard restored to prior state)");
+    } else {
+      console.error("WARNING: Rollback also failed. Keyboard may be in a bad state.");
+      console.error("         Replug the keyboard and run restoreFactoryDefaults() to recover.");
+    }
   }
   return false;
 }
@@ -670,14 +687,14 @@ async function restoreFactoryDefaults(
       { assumeYes }
     );
     if (!confirmed) {
-      console.log("Cancelled — factory reset not performed.");
+      if (!isQuiet()) console.log("Cancelled — factory reset not performed.");
       return false;
     }
 
-    console.log("Reading current configuration (for rollback safety)...");
+    if (!isQuiet()) console.log("Reading current configuration (for rollback safety)...");
     const currentConfigBuffer = await readConfigFromDevice(device);
 
-    console.log("Restoring factory default config...");
+    if (!isQuiet()) console.log("Restoring factory default config...");
     const factoryConfig = Buffer.from(FACTORY_CONFIG);
     const now = new Date();
     factoryConfig[35] = toHexNum(now.getSeconds());
@@ -689,7 +706,7 @@ async function restoreFactoryDefaults(
     factoryConfig[41] = toHexNum(now.getFullYear() % 100);
 
     const success = await writeConfigWithRollback(device, factoryConfig, currentConfigBuffer);
-    if (success) {
+    if (success && !isQuiet()) {
       console.log("✓ Factory config restored");
     }
     return success;
@@ -705,17 +722,17 @@ async function restoreFactoryDefaults(
 // -------------------------------------------------------
 
 async function waitForReady(device: HidDevice, timeoutMs = 1000): Promise<boolean> {
-  console.log("Waiting for device to report ready (0x23)...");
+  if (!isQuiet()) console.log("Waiting for device to report ready (0x23)...");
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const resp = await readResponse(device, 100);
     if (resp && resp.length >= 4 && resp[3] === 0x23) {
-      console.log(`✓ Device reported ready after ${Date.now() - start} ms`);
+      if (!isQuiet()) console.log(`✓ Device reported ready after ${Date.now() - start} ms`);
       return true;
     }
     await delay(10);
   }
-  console.warn("⚠ Timed out waiting for ready (0x23) response");
+  if (!isQuiet()) console.warn("⚠ Timed out waiting for ready (0x23) response");
   return false;
 }
 
@@ -788,11 +805,11 @@ async function sendConfigFrame(
  * @returns Padded buffer containing RGB565 pixel data
  */
 async function buildRawImageData(imagePath: string): Promise<Buffer> {
-  console.log(`Loading image: ${imagePath}`);
+  if (!isQuiet()) console.log(`Loading image: ${imagePath}`);
   const img = await Jimp.read(imagePath);
 
   if (img.bitmap.width !== DISPLAY_WIDTH || img.bitmap.height !== DISPLAY_HEIGHT) {
-    console.log(`Resizing image to ${DISPLAY_WIDTH}x${DISPLAY_HEIGHT}...`);
+    if (!isQuiet()) console.log(`Resizing image to ${DISPLAY_WIDTH}x${DISPLAY_HEIGHT}...`);
     img.resize({ w: DISPLAY_WIDTH, h: DISPLAY_HEIGHT });
   }
 
@@ -822,10 +839,11 @@ async function sendFrameData(
   device: HidDevice,
   data: Buffer,
   label = "data",
-  startPosition = 0
+  startPosition = 0,
+  onProgress?: (percent: number, sentBytes: number, totalBytes: number) => void
 ): Promise<void> {
   const total = data.length;
-  console.log(`Uploading ${total} bytes of ${label} (starting at position ${startPosition})...`);
+  if (!isQuiet()) console.log(`Uploading ${total} bytes of ${label} (starting at position ${startPosition})...`);
 
   let pos = 0;
   let lastProgress = -1;
@@ -843,12 +861,16 @@ async function sendFrameData(
 
     const progress = Math.floor((pos / total) * 100);
     if (progress > lastProgress) {
-      process.stdout.write(`\rUpload progress: ${progress}%`);
+      if (onProgress) {
+        onProgress(progress, pos, total);
+      } else {
+        process.stdout.write(`\rUpload progress: ${progress}%`);
+      }
       lastProgress = progress;
     }
   }
 
-  console.log("\n✓ Upload complete");
+  if (!isQuiet()) console.log("\n✓ Upload complete");
 }
 
 // -------------------------------------------------------
@@ -873,7 +895,7 @@ async function uploadImageToDevice(
   images: Array<string | string[]>,
   options: UploadOptions = {}
 ): Promise<boolean> {
-  const { showAfter = true, frameDuration } = options;
+  const { showAfter = true, frameDuration, onProgress } = options;
 
   if (!Array.isArray(images) || images.length < 1 || images.length > 2) {
     throw new Error("uploadImageToDevice expects an array of 1 or 2 images (each a path or an array of frame paths)");
@@ -896,19 +918,21 @@ async function uploadImageToDevice(
   let device = openDevice();
 
   try {
-    console.log("Reading current configuration to preserve settings...");
+    if (!isQuiet()) console.log("Reading current configuration to preserve settings...");
     const configBuffer = await readConfigFromDevice(device);
     const currentConfig = parseConfigBuffer(configBuffer);
-    console.log(`  Underglow: effect=${currentConfig.underglow.effect}, brightness=${currentConfig.underglow.brightness}`);
-    console.log(`  LED: mode=${currentConfig.led.mode}, color=${currentConfig.led.color}`);
+    if (!isQuiet()) {
+      console.log(`  Underglow: effect=${currentConfig.underglow.effect}, brightness=${currentConfig.underglow.brightness}`);
+      console.log(`  LED: mode=${currentConfig.led.mode}, color=${currentConfig.led.color}`);
+    }
 
-    console.log("Clearing device buffer...");
+    if (!isQuiet()) console.log("Clearing device buffer...");
     const stale = await drainDevice(device);
-    if (stale.length > 0) {
+    if (stale.length > 0 && !isQuiet()) {
       console.log(`  Drained ${stale.length} stale messages`);
     }
 
-    console.log("Building image data...");
+    if (!isQuiet()) console.log("Building image data...");
     const image1Buffers: Buffer[] = [];
     for (const p of paths0) {
       image1Buffers.push(await buildRawImageData(p));
@@ -922,9 +946,11 @@ async function uploadImageToDevice(
     }
 
     const concatenatedData = Buffer.concat([...image1Buffers, ...image2Buffers]);
-    console.log(`  Image 1: ${image1Buffers.length} frame(s)`);
-    console.log(`  Image 2: ${paths1 ? `${image2Buffers.length} frame(s)` : "not present"}`);
-    console.log(`  Total: ${concatenatedData.length} bytes (${image1Buffers.length + image2Buffers.length} frames)`);
+    if (!isQuiet()) {
+      console.log(`  Image 1: ${image1Buffers.length} frame(s)`);
+      console.log(`  Image 2: ${paths1 ? `${image2Buffers.length} frame(s)` : "not present"}`);
+      console.log(`  Total: ${concatenatedData.length} bytes (${image1Buffers.length + image2Buffers.length} frames)`);
+    }
 
     const configChanges: ConfigChanges = {
       showImage: shownImage,
@@ -937,23 +963,23 @@ async function uploadImageToDevice(
     }
     const newConfig = buildConfigBuffer(currentConfig, configChanges);
 
-    console.log("Writing config to device...");
+    if (!isQuiet()) console.log("Writing config to device...");
     const configWriteOk = await writeConfigWithRollback(device, newConfig, configBuffer);
     if (!configWriteOk) {
       throw new Error("Config write failed before image upload; aborted (config rolled back)");
     }
 
-    console.log("Starting upload session (0x23 → 0x01)...");
+    if (!isQuiet()) console.log("Starting upload session (0x23 → 0x01)...");
     await sendWithPosition(device, 0x23, Buffer.alloc(0), 0);
     await sendWithPosition(device, 0x01, Buffer.alloc(0), 0);
 
-    console.log("Uploading image data...");
-    await sendFrameData(device, concatenatedData, "image data");
+    if (!isQuiet()) console.log("Uploading image data...");
+    await sendFrameData(device, concatenatedData, "image data", 0, onProgress);
 
     const response = await sendWithPosition(device, 0x02, Buffer.alloc(0), 0);
-    if (!response) console.warn("Upload COMMIT may not have been acknowledged");
+    if (!response && !isQuiet()) console.warn("Upload COMMIT may not have been acknowledged");
 
-    console.log("✓ Upload complete!");
+    if (!isQuiet()) console.log("✓ Upload complete!");
     return true;
   } finally {
     await safeClose(device);
@@ -1085,20 +1111,21 @@ async function configureLighting(changes: ConfigChanges, device: HidDevice | nul
   }
 
   try {
-    console.log("Reading current configuration...");
+    if (!isQuiet()) console.log("Reading current configuration...");
     const currentConfigBuffer = await readConfigFromDevice(device);
     const currentConfig = parseConfigBuffer(currentConfigBuffer);
 
-    console.log("Current settings:");
-    console.log(`  Underglow: effect=${currentConfig.underglow.effect}, brightness=${currentConfig.underglow.brightness}`);
-    console.log(`  LED: mode=${currentConfig.led.mode}, color=${currentConfig.led.color}`);
-    console.log(`  Images: image1Frames=${currentConfig.image1Frames}, image2Frames=${currentConfig.image2Frames}`);
-
-    console.log("\nApplying changes (preserving other settings)...");
+    if (!isQuiet()) {
+      console.log("Current settings:");
+      console.log(`  Underglow: effect=${currentConfig.underglow.effect}, brightness=${currentConfig.underglow.brightness}`);
+      console.log(`  LED: mode=${currentConfig.led.mode}, color=${currentConfig.led.color}`);
+      console.log(`  Images: image1Frames=${currentConfig.image1Frames}, image2Frames=${currentConfig.image2Frames}`);
+      console.log("\nApplying changes (preserving other settings)...");
+    }
     const newConfig = buildConfigBuffer(currentConfig, changes);
 
     const success = await writeConfigWithRollback(device, newConfig, currentConfigBuffer);
-    if (success) {
+    if (success && !isQuiet()) {
       console.log("✓ Lighting configuration applied successfully!");
     }
     return success;
@@ -1212,4 +1239,5 @@ export {
   getKeyboardInfo,
   // Debug
   setDebug,
+  isQuiet,
 };

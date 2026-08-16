@@ -7,11 +7,13 @@
  * UI inherits the terminal's own theme instead of hardcoding hex values.
  */
 
+process.env.GMK67S_TUI = "1";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { useState, useEffect } from "react";
-import { render, Box, Text, useInput, useApp } from "ink";
+import { render, Box, Text, useInput, useApp, useStdout } from "ink";
 import {
   setLighting,
   syncTime,
@@ -24,7 +26,40 @@ import type { ParsedConfig, KeyboardInfo } from "./lib/device.js";
 import { UNDERGLOW_EFFECTS, LED_COLORS } from "./configureLights.js";
 import { loadPresets, applyPreset } from "./loadPreset.js";
 
+const ALT_SCREEN_ENTER = "\x1b[?1049h\x1b[?25l";
+const ALT_SCREEN_EXIT = "\x1b[?1049l\x1b[?25h";
+
+function useTerminalSize(): { width: number; height: number } {
+  const { stdout } = useStdout();
+  const [size, setSize] = useState({
+    width: stdout.columns || 80,
+    height: stdout.rows || 24,
+  });
+
+  useEffect(() => {
+    const onResize = () => {
+      setSize({ width: stdout.columns || 80, height: stdout.rows || 24 });
+    };
+    stdout.on("resize", onResize);
+    return () => {
+      stdout.off("resize", onResize);
+    };
+  }, [stdout]);
+
+  return size;
+}
+
 type Screen = "menu" | "info" | "lights" | "preset" | "upload" | "timesync" | "restore";
+
+const SCREEN_LABELS: Record<Screen, string> = {
+  menu: "Main Menu",
+  info: "Device Info",
+  lights: "Lighting",
+  preset: "Presets",
+  upload: "Upload Image",
+  timesync: "Time Sync",
+  restore: "Restore Factory Defaults",
+};
 
 interface MenuItem {
   key: Screen | "quit";
@@ -45,14 +80,22 @@ function MenuScreen({ onSelect, onQuit }: { onSelect: (screen: Screen) => void; 
   const [index, setIndex] = useState(0);
 
   useInput((input, key) => {
-    if (key.upArrow) setIndex((i) => (i - 1 + MENU_ITEMS.length) % MENU_ITEMS.length);
-    if (key.downArrow) setIndex((i) => (i + 1) % MENU_ITEMS.length);
+    if (key.upArrow || input === "k") setIndex((i) => (i - 1 + MENU_ITEMS.length) % MENU_ITEMS.length);
+    if (key.downArrow || input === "j") setIndex((i) => (i + 1) % MENU_ITEMS.length);
     if (key.return) {
       const item = MENU_ITEMS[index];
       if (item.key === "quit") onQuit();
       else onSelect(item.key);
     }
     if (input === "q") onQuit();
+    if (/^[1-7]$/.test(input)) {
+      const item = MENU_ITEMS[Number(input) - 1];
+      if (item) {
+        setIndex(Number(input) - 1);
+        if (item.key === "quit") onQuit();
+        else onSelect(item.key);
+      }
+    }
   });
 
   return (
@@ -141,12 +184,16 @@ function LightingScreen({ onBack }: { onBack: () => void }) {
       onBack();
       return;
     }
-    if (key.tab) {
+    if (key.tab || input === "j") {
       setFocus((f) => (f + 1) % LIGHTING_FIELDS.length);
       return;
     }
-    if (key.leftArrow || key.rightArrow) {
-      const dir = key.rightArrow ? 1 : -1;
+    if (input === "k") {
+      setFocus((f) => (f - 1 + LIGHTING_FIELDS.length) % LIGHTING_FIELDS.length);
+      return;
+    }
+    if (key.leftArrow || key.rightArrow || input === "h" || input === "l") {
+      const dir = key.rightArrow || input === "l" ? 1 : -1;
       if (focus === 0) setEffectIdx((i) => (i + dir + EFFECT_NAMES.length) % EFFECT_NAMES.length);
       if (focus === 1) setBrightness((b) => Math.min(9, Math.max(0, b + dir)));
       if (focus === 2) setColorIdx((i) => (i + dir + LED_COLOR_NAMES.length) % LED_COLOR_NAMES.length);
@@ -175,7 +222,7 @@ function LightingScreen({ onBack }: { onBack: () => void }) {
         <Text color="red">{`${status} Press any key to go back.`}</Text>
       )}
       {!status && (
-        <Text dimColor>Tab: switch field · ←/→: change value · Enter: apply · Esc: cancel</Text>
+        <Text dimColor>Tab/j next field · k prev field · ←/→/h/l: change value · Enter: apply · Esc: cancel</Text>
       )}
     </Box>
   );
@@ -202,8 +249,8 @@ function PresetScreen({ onBack }: { onBack: () => void }) {
       onBack();
       return;
     }
-    if (key.upArrow) setIndex((i) => (i - 1 + presets.length) % presets.length);
-    if (key.downArrow) setIndex((i) => (i + 1) % presets.length);
+    if (key.upArrow || input === "k") setIndex((i) => (i - 1 + presets.length) % presets.length);
+    if (key.downArrow || input === "j") setIndex((i) => (i + 1) % presets.length);
     if (key.return && presets.length > 0) {
       setStatus("applying");
       const [name] = presets[index];
@@ -285,23 +332,23 @@ function FileBrowserScreen({ onSelect, onCancel }: { onSelect: (path: string) =>
       onCancel();
       return;
     }
-    if (key.upArrow) {
+    if (key.upArrow || input === "k") {
       setIndex((i) => (entries.length ? (i - 1 + entries.length) % entries.length : 0));
       return;
     }
-    if (key.downArrow) {
+    if (key.downArrow || input === "j") {
       setIndex((i) => (entries.length ? (i + 1) % entries.length : 0));
       return;
     }
-    if (input === "~" || input === "h") {
+    if (input === "~") {
       setCurrentDir(os.homedir());
       return;
     }
-    if (key.leftArrow || key.backspace) {
+    if (key.leftArrow || key.backspace || input === "h") {
       setCurrentDir((d) => path.dirname(d));
       return;
     }
-    if (key.return) {
+    if (key.return || input === "l") {
       const entry = entries[index];
       if (!entry) return;
       if (entry.isDir) {
@@ -333,9 +380,16 @@ function FileBrowserScreen({ onSelect, onCancel }: { onSelect: (path: string) =>
         );
       })}
       <Text> </Text>
-      <Text dimColor>↑/↓ navigate · Enter open/select · ←/Backspace up dir · ~ home · Esc back</Text>
+      <Text dimColor>↑/↓/j/k navigate · Enter/l open/select · ←/Backspace/h up dir · ~ home · Esc back</Text>
     </Box>
   );
+}
+
+function ProgressBar({ percent, width = 30 }: { percent: number; width?: number }) {
+  const clamped = Math.max(0, Math.min(100, percent));
+  const filled = Math.round((clamped / 100) * width);
+  const bar = "█".repeat(filled) + "░".repeat(width - filled);
+  return <Text>{`${bar} ${clamped}%`}</Text>;
 }
 
 type UploadStage = "image1" | "askSecond" | "image2" | "uploading" | "done" | "error";
@@ -347,10 +401,14 @@ function UploadScreen({ onBack }: { onBack: () => void }) {
   const [image1, setImage1] = useState<string | null>(null);
   const [image2, setImage2] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     if (stage !== "uploading") return;
-    uploadImage(image2 ? [image1!, image2] : [image1!], { showAfter: true })
+    uploadImage(image2 ? [image1!, image2] : [image1!], {
+      showAfter: true,
+      onProgress: (percent) => setProgress(percent),
+    })
       .then(() => setStage("done"))
       .catch((err) => {
         setError(err.message);
@@ -423,7 +481,7 @@ function UploadScreen({ onBack }: { onBack: () => void }) {
         </Text>
       )}
       <Text> </Text>
-      {stage === "uploading" && <Text>Uploading...</Text>}
+      {stage === "uploading" && <ProgressBar percent={progress} />}
       {stage === "done" && <Text color="green">Upload complete. Press any key to go back.</Text>}
       {stage === "error" && <Text color="red">{`${error} Press any key to go back.`}</Text>}
     </Box>
@@ -462,7 +520,7 @@ function RestoreScreen({ onBack }: { onBack: () => void }) {
 
   useInput((input, key) => {
     if (!confirmed) {
-      if (key.leftArrow || key.rightArrow) {
+      if (key.leftArrow || key.rightArrow || input === "h" || input === "l") {
         setYesSelected((y) => !y);
         return;
       }
@@ -499,7 +557,7 @@ function RestoreScreen({ onBack }: { onBack: () => void }) {
           {"   "}
           <Text color={yesSelected ? "cyan" : undefined}>{yesSelected ? "▸ Yes" : "  Yes"}</Text>
         </Text>
-        <Text dimColor>←/→ choose · Enter confirm · Esc cancel</Text>
+        <Text dimColor>←/→/h/l choose · Enter confirm · Esc cancel</Text>
       </Box>
     );
   }
@@ -518,14 +576,15 @@ function RestoreScreen({ onBack }: { onBack: () => void }) {
 function App() {
   const { exit } = useApp();
   const [screen, setScreen] = useState<Screen>("menu");
+  const { width, height } = useTerminalSize();
 
   const onBack = () => setScreen("menu");
 
   return (
-    <Box flexDirection="column" padding={1}>
+    <Box flexDirection="column" borderStyle="round" width={width} height={height} padding={1}>
       <Text bold>GMK67-S</Text>
       <Box marginBottom={1}>
-        <Text dimColor>↑/↓ navigate · Enter select · Esc back · q quit</Text>
+        <Text dimColor>{`${SCREEN_LABELS[screen]} · ↑/↓/j/k navigate · Enter select · Esc back · q quit`}</Text>
       </Box>
       {screen === "menu" && <MenuScreen onSelect={setScreen} onQuit={exit} />}
       {screen === "info" && <DeviceInfoScreen onBack={onBack} />}
@@ -543,8 +602,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error("gmk67s tui requires an interactive terminal (stdin is not a TTY).");
     process.exit(1);
   }
+  process.stdout.write(ALT_SCREEN_ENTER);
+  const restoreAltScreen = () => {
+    process.stdout.write(ALT_SCREEN_EXIT);
+  };
+  process.on("exit", restoreAltScreen);
   const { waitUntilExit } = render(<App />);
-  waitUntilExit().then(() => process.exit(0));
+  waitUntilExit().then(() => {
+    restoreAltScreen();
+    process.exit(0);
+  });
 }
 
 export { App };
