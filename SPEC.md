@@ -158,8 +158,8 @@ BCD (Binary-Coded Decimal): a byte encoding a 2-digit decimal number as
 |---|---|---|
 | Payload per report | 56 bytes | bytes 8-63 of the 64-byte report |
 | Frame data chunk size | 56 bytes | image data is split into 56-byte `FRAME_DATA` packets |
-| Padded frame size | 65536 bytes | per image frame, after 32KB-boundary rounding |
-| Max total frames (image1 + image2 combined) | 36 | assumed flash-storage limit; not verified on this device |
+| Padded frame size | 32768 bytes | per image frame, after 32KB-boundary rounding (this device's 128x128 raw frame is already a 32KB multiple; 65536 was GMK87's figure — 240x135, padded to 2 blocks — mistakenly carried over during porting) |
+| Max total frames (image1 + image2 combined) | 72 | derived from GMK87's confirmed working budget (36 frames × 65536 bytes/frame = 2,359,296 bytes, same shared flash/image-memory region) divided by this device's actual 32768 bytes/frame = 72 frames; not yet hardware-verified on a real GMK67-S |
 | Config buffer size | 48 bytes | |
 
 The protocol has no opcode to read back an existing image, and every upload
@@ -168,12 +168,12 @@ at position 0 — there is no way to preserve an image that isn't part of the
 current upload call. `image1Frames`/`image2Frames` describe the two frame
 counts within that single write, not independently addressable "slots":
 
-- **Uploading 1 image**: it gets the entire 36-frame budget (frames are
-  truncated to 36 if the source has more). `image2Frames = 0` — this means
+- **Uploading 1 image**: it gets the entire 72-frame budget (frames are
+  truncated to 72 if the source has more). `image2Frames = 0` — this means
   there is no second image at all, not an empty/reserved one. No bytes are
   sent for a second image; nothing is padded or blanked in its place.
-- **Uploading 2 images**: the 36-frame budget is split — image 1 gets up to
-  18 frames, image 2 gets whatever remains of 36 after image 1's actual
+- **Uploading 2 images**: the 72-frame budget is split — image 1 gets up to
+  36 frames, image 2 gets whatever remains of 72 after image 1's actual
   frame count is subtracted (so a short image 1 leaves more of the budget
   for image 2, and vice versa). `showImage = 1` by default (image 1 shown
   first after upload).
@@ -213,7 +213,7 @@ READY(0x23)
 INIT(0x01)
 FRAME_DATA(0x21, ≤56 bytes, pos=N)  × (total bytes / 56), where pos is the
   cumulative byte offset into the concatenated [image1 frames..., image2 frames...]
-  buffer (each frame padded to 65536 bytes). This single write covers the
+  buffer (each frame padded to 32768 bytes). This single write covers the
   device's entire image memory — if image2 is absent, no bytes are sent for
   it at all (no blank/placeholder frame).
 COMMIT(0x02)
@@ -242,5 +242,5 @@ orientation=1, rainbow=0, RGB=(255,1,0); winlock=0; led mode=`0x03`
 | Item | Status |
 |---|---|
 | Upload sequence end-to-end on real hardware | Not yet run against physical hardware in this codebase's test history |
-| 36-frame total limit | Assumed, not confirmed for this device |
+| 72-frame total limit | Derived from GMK87's confirmed 36-frame/65536-byte-per-frame budget, scaled to this device's actual 32768-byte frame size (same shared flash budget) — not yet confirmed by an actual upload to physical GMK67-S hardware |
 | Reserved/unknown byte meanings (offsets 0, 9-20, 22-27, 30, 42, 45, 47) | Unknown — preserved as-is by all read-modify-write paths, never written directly |

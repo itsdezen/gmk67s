@@ -34,7 +34,7 @@ import type { UploadOptions } from "./sendImageMagick.js";
 /**
  * Upload 1 or 2 images (supports GIFs) with automatic resize + frame
  * extraction. Every call rewrites the device's entire image memory from
- * scratch: one file uses the full 36-frame budget, two files split it 18/18.
+ * scratch: one file uses the full 72-frame budget, two files split it 36/36.
  * @param files - 1 or 2 source image file paths
  * @param options - Upload options
  */

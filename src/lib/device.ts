@@ -861,7 +861,7 @@ async function sendFrameData(
  * — there is no protocol opcode to read back an existing image, so there is
  * no such thing as "preserving the other image" across an upload. Passing a
  * single image means the device ends up with exactly one image (using the
- * full 36-frame budget); passing two images splits the budget between them.
+ * full 72-frame budget); passing two images splits the budget between them.
  * Preserves lighting/LED/other settings via read-modify-write, and rolls
  * back the config write if it fails to ACK.
  * @param images - 1 or 2 entries; each entry is either a single image path
@@ -887,8 +887,8 @@ async function uploadImageToDevice(
   const image2FrameCount = paths1 ? paths1.length : 0;
   const totalFrames = image1FrameCount + image2FrameCount;
 
-  if (totalFrames > 36) {
-    throw new Error(`Too many frames: ${totalFrames} (image1: ${image1FrameCount}, image2: ${image2FrameCount}, max 36 total)`);
+  if (totalFrames > 72) {
+    throw new Error(`Too many frames: ${totalFrames} (image1: ${image1FrameCount}, image2: ${image2FrameCount}, max 72 total)`);
   }
 
   const shownImage = showAfter ? 1 : 0;

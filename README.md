@@ -81,8 +81,8 @@ gmk67s timesync
 gmk67s lights --effect rainbow-cycle --brightness 5
 gmk67s preset gaming
 gmk67s preset --list
-gmk67s upload image.png                  # 1 image — uses the full 36-frame budget
-gmk67s upload cat.png dog.png            # 2 images — 36-frame budget split 18/18
+gmk67s upload image.png                  # 1 image — uses the full 72-frame budget
+gmk67s upload cat.png dog.png            # 2 images — 72-frame budget split 36/36
 gmk67s upload anim.gif --ms 100          # animated GIF, 100ms per frame
 gmk67s restore-factory
 gmk67s restore-factory --yes   # skip the confirmation prompt

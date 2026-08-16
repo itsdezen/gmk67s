@@ -144,7 +144,7 @@ export async function extractFramesFromFile(inPath: string, outDir: string): Pro
 /**
  * Processes 1 or 2 image files (static or GIF) and uploads them to the
  * GMK67-S device. Every upload rewrites the device's entire image memory:
- * one file uses the full 36-frame budget, two files split it 18/18 (with
+ * one file uses the full 72-frame budget, two files split it 36/36 (with
  * leftover frames from a shorter file going to the other).
  * @param files - 1 or 2 source image file paths
  * @param options - Upload options
@@ -172,9 +172,9 @@ export async function processAndSend(
   }
 
   try {
-    // Auto-truncate if total frames exceed the assumed flash-storage limit
-    // (unverified for this device — see SPEC.md)
-    const MAX_TOTAL_FRAMES = 36;
+    // Auto-truncate if total frames exceed the flash-storage limit
+    // (derived from GMK87's confirmed budget, not yet hardware-verified for this device — see SPEC.md)
+    const MAX_TOTAL_FRAMES = 72;
 
     let frames0 = await extractFrames(fileList[0]);
     let frames1 = fileList[1] !== undefined ? await extractFrames(fileList[1]) : null;
@@ -185,16 +185,16 @@ export async function processAndSend(
         const target0 = Math.min(frames0.length, half);
         const target1 = Math.min(frames1.length, MAX_TOTAL_FRAMES - target0);
         if (frames0.length > target0) {
-          console.log(`  Truncating image 1 from ${frames0.length} to ${target0} frames (36-frame hardware limit)`);
+          console.log(`  Truncating image 1 from ${frames0.length} to ${target0} frames (${MAX_TOTAL_FRAMES}-frame hardware limit)`);
           frames0 = frames0.slice(0, target0);
         }
         if (frames1.length > target1) {
-          console.log(`  Truncating image 2 from ${frames1.length} to ${target1} frames (36-frame hardware limit)`);
+          console.log(`  Truncating image 2 from ${frames1.length} to ${target1} frames (${MAX_TOTAL_FRAMES}-frame hardware limit)`);
           frames1 = frames1.slice(0, target1);
         }
       }
     } else if (frames0.length > MAX_TOTAL_FRAMES) {
-      console.log(`  Truncating image from ${frames0.length} to ${MAX_TOTAL_FRAMES} frames (36-frame hardware limit)`);
+      console.log(`  Truncating image from ${frames0.length} to ${MAX_TOTAL_FRAMES} frames (${MAX_TOTAL_FRAMES}-frame hardware limit)`);
       frames0 = frames0.slice(0, MAX_TOTAL_FRAMES);
     }
 
@@ -224,7 +224,7 @@ export async function processAndSend(
  * Usage:
  *   node sendImageMagick.js <file1> [file2] [--ms <delay>]
  *
- * One file uses the full 36-frame budget. Two files split it 18/18. Every
+ * One file uses the full 72-frame budget. Two files split it 36/36. Every
  * upload rewrites the device's entire image memory — there is no "slot"
  * concept and no way to preserve an image not passed in this call.
  */
