@@ -194,14 +194,14 @@ function findVerifiedDeviceInfo(): HidDeviceInfo {
   const info = findDeviceInfo();
   if (!info) {
     throw new Error(
-      "Không tìm thấy bàn phím GMK67-S — vui lòng cắm bàn phím và thử lại (VID 0x320f / PID 0x5055 not found)"
+      "GMK67-S keyboard not found — please plug in the keyboard and try again (VID 0x320f / PID 0x5055 not found)"
     );
   }
 
   const product = (info.product || "").trim();
   if (product && !product.toLowerCase().includes("gmk67-s") && !product.toLowerCase().includes("zuoya")) {
     throw new Error(
-      `Thiết bị tìm thấy không khớp GMK67-S — VID/PID đúng (0x320f/0x5055) nhưng tên thiết bị là "${product}" thay vì "${EXPECTED_PRODUCT_NAME}". Dừng lại để tránh gửi lệnh sai thiết bị.`
+      `Found device does not match GMK67-S — VID/PID correct (0x320f/0x5055) but device name is "${product}" instead of "${EXPECTED_PRODUCT_NAME}". Stopping to avoid sending commands to the wrong device.`
     );
   }
 
