@@ -113,3 +113,17 @@ const config = await gmk67s.readConfig();
    and confirm the previous config is restored.
 4. Test factory restore on real hardware and compare against the
    `FACTORY_CONFIG` table in SPEC.md.
+
+## Git conventions
+
+- Prefix commit subjects with an emoji matching the change, followed by a
+  concise English summary. Use the style established in history, for example
+  `🚀 tui: add upload progress` or `🐞 fix: preserve the other LCD image`;
+  an area scope is optional when it helps identify the change.
+- Common prefixes are `🚀` for features, `🐞` for fixes, `🔧` for maintenance,
+  `📝` for documentation, and `🗑️` for removals. Keep each commit focused and
+  do not end its subject with a period.
+- Name topic branches with up to three lowercase, hyphen-separated words;
+  do not use slash-separated type prefixes (for example, `lcd-upload-progress`).
+- Keep `main` as the stable branch. Push a topic branch to its matching origin
+  branch after its checks pass.
